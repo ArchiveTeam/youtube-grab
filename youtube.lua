@@ -169,7 +169,7 @@ end
 wget.callbacks.get_urls = function(file, url, is_css, iri)
   local urls = {}
   local html = nil
-  
+
   downloaded[url] = true
 
   local function check(urla)
@@ -414,7 +414,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
               end
             end
           end
-          data = data["badges"] 
+          data = data["badges"]
           if data then
             for _, badge in pairs(data) do
               badge = badge["metadataBadgeRenderer"]
@@ -657,7 +657,7 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
   status_code = http_stat["statcode"]
 
   set_new_item(url["url"])
-  
+
   url_count = url_count + 1
   io.stdout:write(url_count .. "=" .. status_code .. " " .. url["url"] .. "  \n")
   io.stdout:flush()
@@ -673,7 +673,7 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
       return wget.actions.ABORT -- TODO
     end
   end
-  
+
   if status_code >= 200 and status_code <= 399 then
     downloaded[url["url"]] = true
   end

@@ -5,14 +5,14 @@ local http = require("socket.http")
 local https = require("ssl.https")
 JSON = (loadfile "JSON.lua")()
 
-local item_dir = os.getenv('item_dir')
-local warc_file_base = os.getenv('warc_file_base')
-local v1_items_s = os.getenv('v1_items')
-local v2_items_s = os.getenv('v2_items')
+local item_dir = os.getenv("item_dir")
+local warc_file_base = os.getenv("warc_file_base")
+local v1_items_s = os.getenv("v1_items")
+local v2_items_s = os.getenv("v2_items")
 local item_type = nil
 local item_name = nil
 local item_value = nil
-
+local more = 1
 local url_count = 0
 local tries = 0
 local downloaded = {}
@@ -26,7 +26,11 @@ local bad_items = {}
 local allowed_urls = {}
 
 local xsrf_token = nil
+local post_headers = nil
 local current_referer = nil
+local current_content = nil
+local api_key = nil
+local api_version = nil
 local sorted_new = false
 
 local v1_items = {}
@@ -97,6 +101,11 @@ set_new_item = function(url)
   local type_, match = get_item(url)
   if match and not ids[match] then
     sorted_new = false
+    xsrf_token = nil
+    post_headers = nil
+    api_key = nil
+    api_version = nil
+    current_content = nil
     abortgrab = false
     exitgrab = false
     ids[match] = true
@@ -155,7 +164,9 @@ allowed = function(url, parenturl)
   end
 
   if string.match(url, "^https?://www%.youtube%.com/comment_service_ajax")
-    or string.match(url, "^https?://[^/]*googlevideo%.com/") then
+    or string.match(url, "^https?://[^/]*googlevideo%.com/")
+    or string.match(url, "^https?://[^/]*youtube.com/youtubei/v1/next")
+    or string.match(url, "^https?://[^/]*ytimg%.com") then
     return true
   end
 
@@ -303,22 +314,13 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end
   end
 
-  local function encode(s)
-    return string.gsub(
-      s, "([^A-Za-z0-9_])",
-      function(c)
-        return string.format("%%%02X", string.byte(c))
-      end
-    )
-  end
-
   local function encode_body(d)
     local s = ""
     for k, v in pairs(d) do
       if string.len(s) > 0 then
         s = s .. "&"
       end
-      s = s .. k .. "=" .. encode(v)
+      s = s .. k .. "=" .. urlparse.escape(v)
     end
     return s
   end
@@ -332,6 +334,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     if without_next then
       next_param = ""
     end
+    post_headers["Content-Type"] = "application/x-www-form-urlencoded"
     table.insert(
       urls,
       {
@@ -339,25 +342,121 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           "https://www.youtube.com/comment_service_ajax"
           .. "?" .. action .. "=1"
           .. "&pbj=1"
-          .. "&ctoken=" .. encode(continuation)
-          .. "&continuation=" .. encode(continuation)
+          .. "&ctoken=" .. urlparse.escape(continuation)
+          .. "&continuation=" .. urlparse.escape(continuation)
           .. next_param
-          .. "&itct=" .. encode(itct),
+          .. "&itct=" .. urlparse.escape(itct),
         method="POST",
         body_data=encode_body({
           session_token=session_token
         }),
-        headers={
-          ["Content-Type"]="application/x-www-form-urlencoded",
-          ["X-YouTube-Client-Name"]="1",
-          ["X-YouTube-Client-Version"]="2.20210701.07.00",
-          ["Referer"]=current_referer
-        }
+        headers=post_headers
       }
     )
   end
 
-  local function queue_continuation(data, replies, without_next)
+  local function set_current_context(context)
+    context["client"]["screenWidthPoints"] = 1920
+    context["client"]["screenHeightPoints"] = 1080
+    context["client"]["screenPixelDensity"] = 1
+    context["client"]["screenDensityFloat"] = 1
+    context["client"]["utcOffsetMinutes"] = 0
+    context["client"]["userInterfaceTheme"] = "USER_INTERFACE_THEME_LIGHT"
+    context["client"]["utcOffsetMinutes"] = 0
+    context["client"]["mainAppWebInfo"] = {
+      graftUrl=current_referer,
+      webDisplayMode="WEB_DISPLAY_MODE_BROWSER",
+      isWebNativeShareAvailable=false
+    }
+    context["request"]["internalExperimentFlags"] = {}
+    context["request"]["consistencyTokenJars"] = {}
+    --context["clickTracking"]["clickTrackingParams"]
+    context["adSignalsInfo"] = {
+      params={
+        {
+          key="dt",
+          value=tostring(os.time(os.date("!*t"))) .. string.format("%03d", math.random(100))
+        }, {
+          key="flash",
+          value="0"
+        }, {
+          key="frm",
+          value="0"
+        }, {
+          key="u_tz",
+          value="0"
+        }, {
+          key="u_his",
+          value="4"
+        }, {
+          key="u_java",
+          value="false"
+        }, {
+          key="u_h",
+          value="1080"
+        }, {
+          key="u_w",
+          value="1920"
+        }, {
+          key="u_ah",
+          value="1040"
+        }, {
+          key="u_aw",
+          value="1920"
+        }, {
+          key="u_cd",
+          value="24"
+        }, {
+          key="u_nplug",
+          value="0"
+        }, {
+          key="u_nmime",
+          value="0"
+        }, {
+          key="bc",
+          value="31"
+        }, {
+          key="bih",
+          value="1080"
+        }, {
+          key="biw",
+          value="1903"
+        }, {
+          key="brdim",
+          value="-8,-8,-8,-8,1920,0,1936,1056,1920,1080"
+        }, {
+          key="vis",
+          value="1"
+        }, {
+          key="wgl",
+          value="true"
+        }, {
+          key="ca_type",
+          value="image"
+        }
+      }
+    }
+    current_context = context
+  end
+
+  local function next_endpoint(continuation, click_tracking_params, api_url)
+    current_context["clickTracking"]["clickTrackingParams"] = click_tracking_params
+    post_headers["Content-Type"] = "application/json"
+    table.insert(
+      urls,
+      {
+        url="https://www.youtube.com" .. api_url .. "?key=" .. api_key,
+        method="POST",
+        body_data=JSON:encode({
+          context=current_context,
+          continuation=continuation
+        }),
+        headers=post_headers
+      }
+    )
+  end
+
+  local function queue_continuation_old(data, replies, without_next)
     local key = "nextContinuationData"
     if without_next then
       key = "reloadContinuationData"
@@ -373,6 +472,23 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       xsrf_token,
       replies,
       without_next
+    )
+  end
+
+  local function queue_continuation_new(continuation_item_renderer)
+    local continuation_endpoint = continuation_item_renderer["continuationEndpoint"]
+    if not continuation_endpoint and not sorted_new then
+      print("switching order")
+      continuation_endpoint = continuation_item_renderer
+    end
+    if not continuation_endpoint then
+      print("getting more replies")
+      continuation_endpoint = continuation_item_renderer["button"]["buttonRenderer"]["command"]
+    end
+    next_endpoint(
+      continuation_endpoint["continuationCommand"]["token"],
+      continuation_endpoint["clickTrackingParams"],
+      continuation_endpoint["commandMetadata"]["webCommandMetadata"]["apiUrl"]
     )
   end
 
@@ -393,8 +509,17 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         error("Could not find a session_token.")
       end
       -- INITIAL COMMENT CONTINUATION
-      xsrf_token = ytplayer_data["XSRF_TOKEN"]
       current_referer = url
+      xsrf_token = ytplayer_data["XSRF_TOKEN"]
+      post_headers = {
+        ["Content-Type"]=nil,
+        ["X-Youtube-Client-Name"]=ytplayer_data["INNERTUBE_CONTEXT_CLIENT_NAME"],
+        ["X-Youtube-Client-Version"]=ytplayer_data["INNERTUBE_CONTEXT_CLIENT_VERSION"],
+        Referer=current_referer
+      }
+      api_key = ytplayer_data["INNERTUBE_API_KEY"]
+      api_version = ytplayer_data["INNERTUBE_API_VERSION"]
+      set_current_context(ytplayer_data["INNERTUBE_CONTEXT"])
       initial_data = initial_data["contents"]["twoColumnWatchNextResults"]["results"]["results"]["contents"]
       local found = false
       local found_info = false
@@ -432,10 +557,20 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         if data and found_info then
           local continuations = data["continuations"]
           if continuations then
-            queue_continuation(continuations, false, false)
+            queue_continuation_old(continuations, false, false)
             found = true
-          elseif string.match(data["contents"][1]["messageRenderer"]["text"]["runs"][1]["text"], "Comments are turned off%.") then
+          end
+          data = data["contents"]
+          check_list_length(data)
+          data = data[1]
+          local message_renderer = data["messageRenderer"]
+          if message_renderer
+            and string.match(message_renderer["text"]["runs"][1]["text"], "Comments are turned off%.") then
             print("comments turned off")
+            found = true
+          else
+            print("getting comments")
+            queue_continuation_new(data["continuationItemRenderer"])
             found = true
           end
         end
@@ -526,7 +661,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           if base_url then
             check(base_url)
             for _, fmt in pairs({"json3", "vtt"}) do
-              newurl = base_url .. "&fmt=" .. fmt
+              local newurl = base_url .. "&fmt=" .. fmt
               check(newurl)
               if fmt == "json3" then
                 check(newurl .. "&xorb=2&xobt=3&xovt=3")
@@ -560,17 +695,17 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       data = data["response"]["continuationContents"][key_name]
       if not sorted_new then
         -- GET NEWEST COMMENTS
-        new_data = data["header"]["commentsHeaderRenderer"]["sortMenu"]["sortFilterSubMenuRenderer"]["subMenuItems"]
+        local new_data = data["header"]["commentsHeaderRenderer"]["sortMenu"]["sortFilterSubMenuRenderer"]["subMenuItems"]
         for _, d in pairs(new_data) do
           if d["title"] == "Newest first" then
-            queue_continuation(d["continuation"], false, true)
+            queue_continuation_old(d["continuation"], false, true)
             sorted_new = true
           end
         end
       else
         local continuation_data = data["continuations"]
         if continuation_data then
-          queue_continuation(continuation_data, replies, false)
+          queue_continuation_old(continuation_data, replies, false)
         end
         -- COMMENTS ON COMMENTS
         data = data["contents"]
@@ -578,7 +713,59 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           for _, d in pairs(data) do
             d = d["commentThreadRenderer"]["replies"]
             if d then
-              queue_continuation(d["commentRepliesRenderer"]["continuations"], true, false)
+              queue_continuation_old(d["commentRepliesRenderer"]["continuations"], true, false)
+            end
+          end
+        end
+      end
+    end
+    if string.match(url, "^https?://[^/]*youtube.com/youtubei/v1/next") then
+      local data = JSON:decode(html)["onResponseReceivedEndpoints"]
+      local just_sorted = false
+      for _, d in pairs(data) do
+        local continuation_items_action = d["appendContinuationItemsAction"]
+        if not continuation_items_action then
+          continuation_items_action = d["reloadContinuationItemsCommand"]
+        end
+        if not continuation_items_action then
+          error("Bad continuation_items_action found.")
+        end
+        local continuation_items = continuation_items_action["continuationItems"]
+        if continuation_items then
+          for _, item in pairs(continuation_items) do
+            if sorted_new and not just_sorted then
+              local continuation_item_renderer = item["continuationItemRenderer"]
+              if continuation_item_renderer then
+                print("getting more comments")
+                queue_continuation_new(continuation_item_renderer)
+              end
+            else
+              local comment_header_renderer = item["commentsHeaderRenderer"]
+              if comment_header_renderer then
+                for _, d in pairs(comment_header_renderer["sortMenu"]["sortFilterSubMenuRenderer"]["subMenuItems"]) do
+                  if not d["selected"] and d["title"] ~= "Newest first" then
+                    error("Unknown ordering.")
+                  end
+                  if d["title"] == "Newest first" then
+                    queue_continuation_new(d["serviceEndpoint"])
+                    sorted_new = true
+                    just_sorted = true
+                  end
+                end
+              end
+              if not sorted_new then
+                error("Could not sort on newest first.")
+              end
+            end
+            local comment_thread_renderer = item["commentThreadRenderer"]
+            if comment_thread_renderer then
+              local replies = comment_thread_renderer["replies"]
+              if replies then
+                print("getting replies")
+                replies = replies["commentRepliesRenderer"]["contents"]
+                check_list_length(replies)
+                queue_continuation_new(replies[1]["continuationItemRenderer"])
+              end
             end
           end
         end
@@ -592,7 +779,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         if i < 128 then
           return string.char(i)
         else
-          error("Unsupported character.")
+          print("Unsupported character.")
         end
       end
     )
@@ -690,10 +877,7 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
   if status_code == 0 or status_code >= 400 then
     io.stdout:write("Server returned " .. http_stat.statcode .. " (" .. err .. "). Sleeping.\n")
     io.stdout:flush()
-    local maxtries = 5
-    if not allowed(url["url"], nil) then
-      maxtries = 3
-    end
+    local maxtries = 2
     if tries >= maxtries then
       io.stdout:write("I give up...\n")
       io.stdout:flush()
@@ -725,7 +909,7 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
     ["urls-rdbamz622bgqchg"]=outlinks
   }) do
     for item, _ in pairs(data) do
-      print('found item', item)
+      print("found item", item)
       if items == nil then
         items = item
       else

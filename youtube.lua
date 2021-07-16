@@ -664,7 +664,11 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
 
   if status_code >= 300 and status_code <= 399 then
     local newloc = urlparse.absolute(url["url"], http_stat["newloc"])
-    if string.match(newloc, "consent%.youtube%.com") then
+    if string.match(url["url"], "watch%?v=")
+      or string.match(newloc, "consent%.youtube%.com")
+      or string.match(newloc, "consent%.google%.com/")
+      or string.match(newloc, "google%.com/sorry") then
+      print("bad redirect to", newloc)
       return wget.actions.ABORT
     end
     if downloaded[newloc] or addedtolist[newloc]

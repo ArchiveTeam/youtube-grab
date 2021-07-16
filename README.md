@@ -61,7 +61,7 @@ Package `libzstd-dev` version 1.4.4 is required which is currently available fro
     adduser --system --group --shell /bin/bash archiveteam
     echo deb http://deb.debian.org/debian buster-backports main contrib > /etc/apt/sources.list.d/backports.list
     apt-get update \
-    && apt-get install -y git-core libgnutls-dev lua5.1 liblua5.1-0 liblua5.1-0-dev screen bzip2 zlib1g-dev flex autoconf autopoint texinfo gperf lua-socket rsync automake pkg-config python3-dev python3-pip build-essential \
+    && apt-get install -y git-core libgnutls-dev lua5.1 liblua5.1-0 liblua5.1-0-dev screen bzip2 zlib1g-dev flex autoconf autopoint texinfo gperf lua-socket lua-filesystem lua-sec rsync automake pkg-config python3-dev python3-pip build-essential \
     && apt-get -t buster-backports install zstd libzstd-dev libzstd1
     python3 -m pip install setuptools wheel
     python3 -m pip install --upgrade seesaw zstandard requests
@@ -74,7 +74,7 @@ In __Debian Jessie, Ubuntu 18.04 Bionic and above__, the `libgnutls-dev` package
     adduser --system --group --shell /bin/bash archiveteam
     echo deb http://deb.debian.org/debian buster-backports main contrib > /etc/apt/sources.list.d/backports.list
     apt-get update \
-    && apt-get install -y git-core libgnutls28-dev lua5.1 liblua5.1-0 liblua5.1-0-dev screen bzip2 zlib1g-dev flex autoconf autopoint texinfo gperf lua-socket rsync automake pkg-config python3-dev python3-pip build-essential \
+    && apt-get install -y git-core libgnutls28-dev lua5.1 liblua5.1-0 liblua5.1-0-dev screen bzip2 zlib1g-dev flex autoconf autopoint texinfo gperf lua-socket lua-filesystem lua-sec automake pkg-config python3-dev python3-pip build-essential \
     && apt-get -t buster-backports install zstd libzstd-dev libzstd1
     [... pretty much the same as above ...]
 

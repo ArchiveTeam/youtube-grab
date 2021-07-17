@@ -856,6 +856,8 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
       or string.match(newloc, "consent%.google%.com/")
       or string.match(newloc, "google%.com/sorry") then
       print("bad redirect to", newloc)
+      print("you're likely banned, sleeping for 1800 seconds.")
+      os.execute("sleep 1800")
       return wget.actions.ABORT
     end
     if downloaded[newloc] or addedtolist[newloc]

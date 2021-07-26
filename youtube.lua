@@ -841,6 +841,11 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
 end
 
 wget.callbacks.httploop_result = function(url, err, http_stat)
+  local function banned()
+    print("you're likely banned, sleeping for 1800 seconds.")
+    os.execute("sleep 1800")
+  end
+
   status_code = http_stat["statcode"]
 
   set_new_item(url["url"])
@@ -849,6 +854,11 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
   io.stdout:write(url_count .. "=" .. status_code .. " " .. url["url"] .. "  \n")
   io.stdout:flush()
 
+  if status_code == 429 then
+    banned()
+    return wget.actions.ABORT
+  end
+
   if status_code >= 300 and status_code <= 399 then
     local newloc = urlparse.absolute(url["url"], http_stat["newloc"])
     if string.match(url["url"], "watch%?v=")
@@ -856,8 +866,7 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
       or string.match(newloc, "consent%.google%.com/")
       or string.match(newloc, "google%.com/sorry") then
       print("bad redirect to", newloc)
-      print("you're likely banned, sleeping for 1800 seconds.")
-      os.execute("sleep 1800")
+      banned()
       return wget.actions.ABORT
     end
     if downloaded[newloc] or addedtolist[newloc]

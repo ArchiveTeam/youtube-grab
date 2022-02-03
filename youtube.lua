@@ -633,6 +633,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
                 local sp = urlparse.unescape(string.match(signature_cipher, "&sp=([^&]+)"))
                 local url_ = urlparse.unescape(string.match(signature_cipher, "&url=([^&]+)"))
                 local name = string.match(body, "([0-9a-zA-Z]+)%(decodeURIComponent%(h%.s%)%)")
+                if not name then
+                  name = string.match(body, "([0-9a-zA-Z]+)%(decodeURIComponent%(c%)%)")
+                end
                 print(" - function name", name)
                 local s_decrypted = interpret_javascript(s, body, name)
                 current_url = url_ .. "&" .. sp .. "=" .. s_decrypted

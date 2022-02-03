@@ -504,7 +504,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     if string.match(url, "^https?://[^/]*youtube%.com/watch%?v=") then
       local initial_data = JSON:decode(string.match(html, "<script[^>]+>var%s+ytInitialData%s*=%s*({.-})%s*;%s*</script>"))
       local initial_player = JSON:decode(string.match(html, "<script[^>]+>var%s+ytInitialPlayerResponse%s*=%s*({.-})%s*;%s*</script>"))
-      local ytplayer_data = JSON:decode(string.match(html, "ytcfg%.set%(({.-})%)%s*;%s*var%s+setMessage="))
+      local ytplayer_data = JSON:decode(string.match(html, "ytcfg%.set%(({.-})%)%s*;%s*window%.ytcfg%.obfuscatedData_"))
       if ytplayer_data["XSRF_FIELD_NAME"] ~= "session_token" then
         error("Could not find a session_token.")
       end

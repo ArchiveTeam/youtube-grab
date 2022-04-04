@@ -917,11 +917,36 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
 end
 
 wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total_downloaded_bytes, total_download_time)
-  local items = nil
+  local function submit_backfeed(newurls, key)
+    local tries = 0
+    local maxtries = 4
+    while tries < maxtries do
+      local body, code, headers, status = http.request(
+        "https://legacy-api.arpa.li/backfeed/legacy/" .. key,
+        newurls .. "\0"
+      )
+      print(body)
+      if code == 200 then
+        io.stdout:write("Submitted discovered URLs.\n")
+        io.stdout:flush()
+        break
+      end
+      io.stdout:write("Failed to submit discovered URLs." .. tostring(code) .. tostring(body) .. "\n")
+      io.stdout:flush()
+      os.execute("sleep " .. math.floor(math.pow(2, tries)))
+      tries = tries + 1
+    end
+    if tries == maxtries then
+      abortgrab = true
+    end
+  end
+
   for key, data in pairs({
-    ["youtube-stash-sntka07rbuq0yyy"]=discovered, -- youtube-asje0zkb3w6xwnz
-    ["urls-rdbamz622bgqchg"]=outlinks
+    ["youtube-stash-gdx8gc8jss2g68t"]=discovered, -- youtube-dww7l284444bgkw
+    ["urls-iw1yksstlc7xgum"]=outlinks
   }) do
+    local count = 0
+    local items = nil
     for item, _ in pairs(data) do
       print("found item", item)
       if items == nil then
@@ -929,25 +954,15 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
       else
         items = items .. "\0" .. item
       end
+      count = count + 1
+      if count == 100 then
+        submit_backfeed(items, key)
+        items = nil
+        count = 0
+      end
     end
     if items ~= nil then
-      local tries = 0
-      while tries < 10 do
-        local body, code, headers, status = http.request(
-          "http://blackbird-amqp.meo.ws:23038/" .. key .. "/",
-          items
-        )
-        if code == 200 or code == 409 then
-          break
-        end
-        io.stdout:write("Could not queue items.\n")
-        io.stdout:flush()
-        os.execute("sleep " .. math.floor(math.pow(2, tries)))
-        tries = tries + 1
-      end
-      if tries == 10 then
-        abort_item()
-      end
+      submit_backfeed(items, key)
     end
   end
 end

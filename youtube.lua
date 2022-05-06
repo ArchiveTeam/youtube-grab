@@ -18,6 +18,7 @@ local tries = 0
 local downloaded = {}
 local addedtolist = {}
 local abortgrab = false
+local killgrab = false
 
 local discovered = {}
 local outlinks = {}
@@ -61,6 +62,11 @@ local ids = {}
 
 for ignore in io.open("ignore-list", "r"):lines() do
   downloaded[ignore] = true
+end
+
+kill_grab = function(item)
+  io.stdout:write("Aborting crawling.\n")
+  killgrab = true
 end
 
 queue_item = function(type_, value)
@@ -857,6 +863,10 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
   io.stdout:write(url_count .. "=" .. status_code .. " " .. url["url"] .. "  \n")
   io.stdout:flush()
 
+  if killgrab then
+    return wget.actions.ABORT
+  end
+
   if status_code == 429 then
     banned()
     return wget.actions.ABORT
@@ -921,6 +931,9 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
     local tries = 0
     local maxtries = 4
     while tries < maxtries do
+      if killgrab then
+        return false
+      end
       local body, code, headers, status = http.request(
         "https://legacy-api.arpa.li/backfeed/legacy/" .. key,
         newurls .. "\0"
@@ -937,7 +950,7 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
       tries = tries + 1
     end
     if tries == maxtries then
-      abortgrab = true
+      kill_grab()
     end
   end
 
@@ -968,6 +981,9 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
 end
 
 wget.callbacks.before_exit = function(exit_status, exit_status_string)
+  if killgrab then
+    return wget.exits.IO_FAIL
+  end
   if abortgrab then
     abort_item()
     return wget.exits.IO_FAIL

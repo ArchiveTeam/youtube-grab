@@ -32,7 +32,7 @@ local current_referer = nil
 local current_content = nil
 local api_key = nil
 local api_version = nil
-local sorted_new = false
+local sorted_new = {}
 
 local v1_items = {}
 for s in string.gmatch(v1_items_s, "([^;]+)") do
@@ -106,7 +106,7 @@ end
 set_new_item = function(url)
   local type_, match = get_item(url)
   if match and not ids[match] then
-    sorted_new = false
+    sorted_new = {}
     xsrf_token = nil
     post_headers = nil
     api_key = nil
@@ -445,21 +445,31 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     current_context = context
   end
 
-  local function next_endpoint(continuation, click_tracking_params, api_url)
+  local function next_endpoint(continuation, click_tracking_params, api_url, pretty_print)
     current_context["clickTracking"]["clickTrackingParams"] = click_tracking_params
     post_headers["Content-Type"] = "application/json"
-    table.insert(
-      urls,
-      {
-        url="https://www.youtube.com" .. api_url .. "?key=" .. api_key,
-        method="POST",
-        body_data=JSON:encode({
-          context=current_context,
-          continuation=continuation
-        }),
-        headers=post_headers
-      }
-    )
+    local pretty_print_s = nil
+    if pretty_print == "both" then
+      pretty_print = {"", "&prettyPrint=false"}
+    elseif pretty_print == "no" then
+      pretty_print = {""}
+    elseif pretty_print == "yes" then
+      pretty_print = {"&prettyPrint=false"}
+    end
+    for _, s in pairs(pretty_print) do
+      table.insert(
+        urls,
+        {
+          url="https://www.youtube.com" .. api_url .. "?key=" .. api_key .. s,
+          method="POST",
+          body_data=JSON:encode({
+            context=current_context,
+            continuation=continuation
+          }),
+          headers=post_headers
+        }
+      )
+    end
   end
 
   local function queue_continuation_old(data, replies, without_next)
@@ -481,9 +491,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     )
   end
 
-  local function queue_continuation_new(continuation_item_renderer)
+  local function queue_continuation_new(continuation_item_renderer, pretty_print)
     local continuation_endpoint = continuation_item_renderer["continuationEndpoint"]
-    if not continuation_endpoint and not sorted_new then
+    if not continuation_endpoint and not sorted_new[pretty_print] then
       print("switching order")
       continuation_endpoint = continuation_item_renderer
     end
@@ -494,7 +504,8 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     next_endpoint(
       continuation_endpoint["continuationCommand"]["token"],
       continuation_endpoint["clickTrackingParams"],
-      continuation_endpoint["commandMetadata"]["webCommandMetadata"]["apiUrl"]
+      continuation_endpoint["commandMetadata"]["webCommandMetadata"]["apiUrl"],
+      pretty_print
     )
   end
 
@@ -570,13 +581,14 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           check_list_length(data)
           data = data[1]
           local message_renderer = data["messageRenderer"]
+          local continuation_item_renderer = data["continuationItemRenderer"]
           if message_renderer
             and string.match(message_renderer["text"]["runs"][1]["text"], "Comments are turned off%.") then
             print("comments turned off")
             found = true
-          else
+          elseif continuation_item_renderer then
             print("getting comments")
-            queue_continuation_new(data["continuationItemRenderer"])
+            queue_continuation_new(continuation_item_renderer, "both")
             found = true
           end
         end
@@ -610,7 +622,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         end
       end
       -- VIDEO
-      if item_type == "v1" or item_type == "v2" then
+      --[[if item_type == "v1" or item_type == "v2" then
         local current_diff = nil
         local current_height = nil
         local current_url = nil
@@ -661,7 +673,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           allowed_urls[current_url] = true
           check(current_url)
         end
-      end
+      end]]
       -- CAPTIONS
       local captions = initial_player["captions"]
       if captions then
@@ -682,6 +694,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       -- MORE VIDEOS
       -- TODO
     end
+    -- OLD COMMENT STYLE
     if string.match(url, "^https?://[^/]*youtube%.com/comment_service_ajax") then
       local data = JSON:decode(html)
       local key_name = "itemSectionContinuation"
@@ -702,13 +715,13 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         end
       end
       data = data["response"]["continuationContents"][key_name]
-      if not sorted_new then
+      if not sorted_new['dummy'] then
         -- GET NEWEST COMMENTS
         local new_data = data["header"]["commentsHeaderRenderer"]["sortMenu"]["sortFilterSubMenuRenderer"]["subMenuItems"]
         for _, d in pairs(new_data) do
           if d["title"] == "Newest first" then
             queue_continuation_old(d["continuation"], false, true)
-            sorted_new = true
+            sorted_new['dummy'] = true
           end
         end
       else
@@ -728,9 +741,19 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         end
       end
     end
+    -- NEW COMMENT STYLE
     if string.match(url, "^https?://[^/]*youtube.com/youtubei/v1/next") then
       local data = JSON:decode(html)["onResponseReceivedEndpoints"]
       local just_sorted = false
+      local pretty_print = "no"
+      if string.match(url, "&prettyPrint=false") then
+        pretty_print = "yes"
+      elseif string.match(url, "prettyPrint=") then
+        error("Should not have prettyPrint= in URL.")
+      end
+      if sorted_new[pretty_print] == nil then
+        sorted_new[pretty_print] = false
+      end
       for _, d in pairs(data) do
         local continuation_items_action = d["appendContinuationItemsAction"]
         if not continuation_items_action then
@@ -741,31 +764,33 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         end
         local continuation_items = continuation_items_action["continuationItems"]
         if continuation_items then
+          -- GET NEWEST COMMENTS
           for _, item in pairs(continuation_items) do
-            if sorted_new and not just_sorted then
-              local continuation_item_renderer = item["continuationItemRenderer"]
-              if continuation_item_renderer then
-                print("getting more comments")
-                queue_continuation_new(continuation_item_renderer)
-              end
-            else
+            if not sorted_new[pretty_print] then
               local comment_header_renderer = item["commentsHeaderRenderer"]
               if comment_header_renderer then
                 for _, d in pairs(comment_header_renderer["sortMenu"]["sortFilterSubMenuRenderer"]["subMenuItems"]) do
-                  if not d["selected"] and d["title"] ~= "Newest first" then
-                    error("Unknown ordering.")
-                  end
+                  --[[if not d["selected"] and d["title"] ~= "Newest first" then
+                    error("Unknown ordering '" .. d["title"] .. "'.")
+                  end]]
                   if d["title"] == "Newest first" then
-                    queue_continuation_new(d["serviceEndpoint"])
-                    sorted_new = true
-                    just_sorted = true
+                    if d["selected"] then
+                      sorted_new[pretty_print] = true
+                    else
+                      queue_continuation_new(d["serviceEndpoint"], pretty_print)
+                      sorted_new[pretty_print] = true
+                      just_sorted = true
+                    end
                   end
                 end
               end
-              if not sorted_new then
+              if not sorted_new[pretty_print] then
                 error("Could not sort on newest first.")
               end
             end
+          end
+          for _, item in pairs(continuation_items) do
+            -- COMMENTS ON COMMENTS 
             local comment_thread_renderer = item["commentThreadRenderer"]
             if comment_thread_renderer then
               local replies = comment_thread_renderer["replies"]
@@ -773,8 +798,17 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
                 print("getting replies")
                 replies = replies["commentRepliesRenderer"]["contents"]
                 check_list_length(replies)
-                queue_continuation_new(replies[1]["continuationItemRenderer"])
+                queue_continuation_new(replies[1]["continuationItemRenderer"], pretty_print)
               end
+            end
+            -- NEXT COMMENT PAGE
+            if sorted_new[pretty_print] and not just_sorted then
+              local continuation_item_renderer = item["continuationItemRenderer"]
+              if continuation_item_renderer then
+                print("getting more comments")
+                queue_continuation_new(continuation_item_renderer, pretty_print)
+              end
+            else
             end
           end
         end
@@ -784,12 +818,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     html = string.gsub(
       html, "\\[uU]([0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F])",
       function (s)
-        local i = tonumber(s, 16)
-        if i < 128 then
-          return string.char(i)
-        else
-          print("Unsupported character.")
-        end
+        return unicode_codepoint_as_utf8(tonumber(s, 16))
       end
     )
     html = string.gsub(html, "\\/", "/")

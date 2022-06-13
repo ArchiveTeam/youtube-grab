@@ -622,7 +622,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         end
       end
       -- VIDEO
-      --[[if item_type == "v1" or item_type == "v2" then
+      if item_type == "v1" or item_type == "v2" then
         local current_diff = nil
         local current_height = nil
         local current_url = nil
@@ -673,7 +673,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           allowed_urls[current_url] = true
           check(current_url)
         end
-      end]]
+      end
       -- CAPTIONS
       local captions = initial_player["captions"]
       if captions then

@@ -33,6 +33,7 @@ local current_content = nil
 local api_key = nil
 local api_version = nil
 local sorted_new = {}
+local decrypted_ns = {}
 
 local v1_items = {}
 for s in string.gmatch(v1_items_s, "([^;]+)") do
@@ -247,6 +248,29 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       or string.match(newurl, "^%${")) then
       check(urlparse.absolute(url, newurl))
     end
+  end
+
+  local function decrypt_n(n, code)
+    print("extracting n description function", n)
+    local f_name = string.match(code, '%([0-9a-zA-Z%$]+%s*=%s*([0-9a-zA-Z%$]+)%([0-9a-zA-Z%$]+%)%s*,%s*[0-9a-zA-Z%$]+%.set%(%s*"n"')
+    if not f_name then
+      f_name = string.match(code, ',%s*[0-9a-zA-Z%$]+%.set%(%s*"n"%s*,%s*[0-9a-zA-Z%$]+%s*%)%s*,%s*[0-9a-zA-Z%$]+%.length%s*||%s*([0-9a-zA-Z%$]+)%(""%)')
+    end
+    print(" - name:", f_name)
+    local f_code = string.match(code, f_name .. "(%s*=%s*function%s*%(a%)%s*{(.-)};)")
+    print("extracted code")
+    local filename = item_dir .. "/temp_func.js"
+    local file = io.open(filename, "w")
+    file:write("func" .. f_code .. 'console.log(func("' .. n .. '"));')
+    file:close()
+    local command = "node " .. filename
+    print("executing code", command)
+    local stream = io.popen(command)
+    local output = stream:read("*a")
+    stream:close()
+    local new_n = string.match(output, "^([^%s]+)")
+    print("decrypted n to", new_n)
+    return new_n
   end
 
   local function interpret_javascript(key, code, f_name)
@@ -636,12 +660,13 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
               or (height > current_height and (is_180 or is_360 or item_type == "v2")) then
               current_diff = diff
               current_height = height
+              local player_js_url = ytplayer_data["PLAYER_JS_URL"]
+              player_js_url = urlparse.absolute("https://www.youtube.com/", player_js_url)
+              --print(" - using PLAYER_JS_URL", player_js_url)
+              local body, _, _, _ = https.request(player_js_url)
+              
               if not format["url"] then
                 print("found encrypted signature")
-                local player_js_url = ytplayer_data["PLAYER_JS_URL"]
-                player_js_url = urlparse.absolute("https://www.youtube.com/", player_js_url)
-                print(" - using PLAYER_JS_URL", player_js_url)
-                local body, code, headers, status = https.request(player_js_url)
                 if math.random() < 0.05 then
                   check(player_js_url)
                 end
@@ -650,15 +675,25 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
                 local s = urlparse.unescape(string.match(signature_cipher, "^s=([^&]+)"))
                 local sp = urlparse.unescape(string.match(signature_cipher, "&sp=([^&]+)"))
                 local url_ = urlparse.unescape(string.match(signature_cipher, "&url=([^&]+)"))
-                local name = string.match(body, "([0-9a-zA-Z]+)%(decodeURIComponent%(h%.s%)%)")
+                local name = string.match(body, "m=([0-9a-zA-Z%$]+)%(decodeURIComponent%(h%.s%)%)")
                 if not name then
-                  name = string.match(body, "([0-9a-zA-Z]+)%(decodeURIComponent%(c%)%)")
+                  name = string.match(body, "%(c=([0-9a-zA-Z%$]+)%(decodeURIComponent%(c%)%)")
                 end
                 print(" - function name", name)
                 local s_decrypted = interpret_javascript(s, body, name)
                 current_url = url_ .. "&" .. sp .. "=" .. s_decrypted
+                print(" - decrypted signature to", current_url)
               else
                 current_url = format["url"]
+              end
+              local n = string.match(current_url, "[%?&]n=([^&]+)")
+              if n then
+                local new_n = decrypted_ns[n]
+                if not new_n then
+                  new_n = decrypt_n(n, body)
+                  decrypted_ns[n] = new_n
+                end
+                current_url = string.gsub(current_url, "([%?&]n=)[^&]+", "%1" .. string.gsub(new_n, "%-", "%%%-"))
               end
             end
           end

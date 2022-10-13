@@ -962,6 +962,11 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
     return wget.actions.ABORT
   end
 
+  if status_code == 404
+    and string.match(url["url"], "^https?://[^/]*ytimg%.com") then
+    return wget.actions.NOTHING
+  end
+
   if status_code == 0 or status_code >= 400 then
     io.stdout:write("Server returned " .. http_stat.statcode .. " (" .. err .. "). Sleeping.\n")
     io.stdout:flush()

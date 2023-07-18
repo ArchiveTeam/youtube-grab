@@ -257,7 +257,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       f_name = string.match(code, ',%s*[0-9a-zA-Z%$]+%.set%(%s*"n"%s*,%s*[0-9a-zA-Z%$]+%s*%)%s*,%s*[0-9a-zA-Z%$]+%.length%s*||%s*([0-9a-zA-Z%$]+)%(""%)')
     end
     print(" - name:", f_name)
-    local f_code = string.match(code, f_name .. "(%s*=%s*function%s*%(a%)%s*{(.-)};)")
+    local f_code = string.match(code, f_name .. "(%s*=%s*function%s*%(a%)%s*{.-return%s+[0-9a-zA-Z%.]+%(\"\"%)%s*};)")
     print("extracted code")
     local filename = item_dir .. "/temp_func.js"
     local file = io.open(filename, "w")

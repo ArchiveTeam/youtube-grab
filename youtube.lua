@@ -16,11 +16,13 @@ local more = 1
 local url_count = 0
 local tries = 0
 local downloaded = {}
+local seen_200 = {}
 local addedtolist = {}
 local abortgrab = false
 local killgrab = false
 
 local discovered = {}
+local discovered_self = {}
 local outlinks = {}
 
 local bad_items = {}
@@ -984,6 +986,17 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
     end
   end
 
+  if string.match(url["url"], "^https?://[^/]*googlevideo%.com/videoplayback") then
+    if seen_200[url["url"]] then
+      io.stdout:write("Already attempted to download this URL.\n")
+      io.stdout:flush()
+      discovered_self["v1:" .. item_value] = true
+      wget.callbacks.finish()
+      return wget.actions.ABORT
+    end
+    seen_200[url["url"]] = true
+  end
+
   tries = 0
 
   local sleep_time = 0
@@ -1025,6 +1038,7 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
 
   for key, data in pairs({
     ["youtube-stash-gdx8gc8jss2g68t"]=discovered, -- youtube-dww7l284444bgkw
+    ["youtube-xpqppj8vq914e5yr"]=discovered_self,
     ["urls-iw1yksstlc7xgum"]=outlinks
   }) do
     local count = 0

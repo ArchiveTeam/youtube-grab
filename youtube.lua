@@ -258,8 +258,14 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     if not f_name then
       f_name = string.match(code, ',%s*[0-9a-zA-Z%$]+%.set%(%s*"n"%s*,%s*[0-9a-zA-Z%$]+%s*%)%s*,%s*[0-9a-zA-Z%$]+%.length%s*||%s*([0-9a-zA-Z%$]+)%(""%)')
     end
+    if not f_name then
+      f_name = string.match(code, ',%s*[0-9a-zA-Z%$]+%.set%(%s*[0-9a-zA-Z%$]+%s*,%s*[0-9a-zA-Z%$]+%s*%)%s*,%s*[0-9a-zA-Z%$]+%.length%s*||%s*([0-9a-zA-Z%$]+)%(""%)')
+    end
     print(" - name:", f_name)
-    local f_code = string.match(code, f_name .. "(%s*=%s*function%s*%(a%)%s*{.-return%s+[0-9a-zA-Z%.]+%(\"\"%)%s*};)")
+    local f_code = string.match(code, f_name .. "(%s*=%s*function%s*%(a%)%s*{.-return%s+[0-9a-zA-Z%.]+%([0-9a-zA-Z%$]+%s*,%s*\"\"%)%s*};)")
+    if not f_code then
+      f_code = string.match(code, f_name .. "(%s*=%s*function%s*%(a%)%s*{.-return%s+[0-9a-zA-Z%.]+%(\"\"%)%s*};)")
+    end
     print("extracted code")
     local filename = item_dir .. "/temp_func.js"
     local file = io.open(filename, "w")
@@ -664,7 +670,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
               current_height = height
               local player_js_url = ytplayer_data["PLAYER_JS_URL"]
               player_js_url = urlparse.absolute("https://www.youtube.com/", player_js_url)
-              --print(" - using PLAYER_JS_URL", player_js_url)
+              print(" - using PLAYER_JS_URL", player_js_url)
               local body, _, _, _ = https.request(player_js_url)
               
               if not format["url"] then

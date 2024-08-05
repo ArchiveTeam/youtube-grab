@@ -262,7 +262,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       f_name = string.match(code, ',%s*[0-9a-zA-Z%$]+%.set%(%s*[0-9a-zA-Z%$]+%s*,%s*[0-9a-zA-Z%$]+%s*%)%s*,%s*[0-9a-zA-Z%$]+%.length%s*||%s*([0-9a-zA-Z%$]+)%(""%)')
     end
     print(" - name:", f_name)
-    local f_code = string.match(code, f_name .. "(%s*=%s*function%s*%(a%)%s*{.-return%s+[0-9a-zA-Z%.]+%([0-9a-zA-Z%$]+%s*,%s*\"\"%)%s*};)")
+    local f_code = string.match(code, f_name .. "(%s*=%s*function%s*%(a%)%s*{.-return%s+[0-9a-zA-Z%.]+%([0-9a-zA-Z%$]+%s*,%s*%(\"\",\"\"%)%)%s*};)")
     if not f_code then
       f_code = string.match(code, f_name .. "(%s*=%s*function%s*%(a%)%s*{.-return%s+[0-9a-zA-Z%.]+%(\"\"%)%s*};)")
     end

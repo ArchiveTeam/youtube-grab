@@ -739,15 +739,28 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       -- CAPTIONS
       local captions = initial_player["captions"]
       if captions then
-        for _, caption in pairs(initial_player["captions"]["playerCaptionsTracklistRenderer"]["captionTracks"]) do
+        local translations = {""}
+        local translation_versions = captions["playerCaptionsTracklistRenderer"]["translationLanguages"]
+        if translation_versions then
+          for _, data in pairs(translation_versions) do
+            table.insert(translations, "&tlang=" .. data["languageCode"])
+          end
+        end
+        for _, caption in pairs(captions["playerCaptionsTracklistRenderer"]["captionTracks"]) do
           local base_url = caption["baseUrl"]
           if base_url then
             check(base_url)
-            for _, fmt in pairs({"json3", "vtt"}) do
-              local newurl = base_url .. "&fmt=" .. fmt
-              check(newurl)
-              if fmt == "json3" then
-                check(newurl .. "&xorb=2&xobt=3&xovt=3")
+            for _, fmt in pairs({"json3", "vtt", "srt", "srv1", "srv2", "srv3", "ttml"}) do
+              local local_translations = {""}
+              --if caption["isTranslatable"] then
+              --  local_translations = translations
+              --end
+              for _, translate_param in pairs(local_translations) do
+                local newurl = base_url .. translate_param .. "&fmt=" .. fmt
+                check(newurl)
+                if fmt == "json3" then
+                  check(newurl .. "&xorb=2&xobt=3&xovt=3")
+                end
               end
             end
           end
@@ -959,8 +972,12 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
   end
 
   if status_code == 429 then
-    banned()
-    return wget.actions.ABORT
+    if string.match(url["url"], "/api/timedtext") then
+      os.execute("sleep 2")
+    else
+      banned()
+      return wget.actions.ABORT
+    end
   end
 
   if status_code >= 300 and status_code <= 399 then

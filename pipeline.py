@@ -18,6 +18,8 @@ import sys
 import time
 import string
 
+import requests
+
 import seesaw
 from seesaw.externalprocess import WgetDownload
 from seesaw.pipeline import Pipeline
@@ -67,11 +69,15 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20240806.01'
-USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36'
+VERSION = '20240812.01'
+USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 TRACKER_ID = 'youtube'
 TRACKER_HOST = 'legacy-api.arpa.li'
 MULTI_ITEM_SIZE = 1 # DO NOT CHANGE
+COOKIES = {
+    'PREF': 'tz=Etc.UTC',
+    'CONSENT': 'YES+cb.20210629-13-p0.en'
+}
 
 ###########################################################################
 # This section defines project-specific tasks.
@@ -216,7 +222,6 @@ class WgetArgs(object):
             '--dns-servers', '9.9.9.10,149.112.112.10,2620:fe::10,2620:fe::fe:10',
             '--reject-reserved-subnets',
             '--content-on-error',
-            '--load-cookies', 'cookies.txt',
             '--lua-script', 'youtube.lua',
             '-o', ItemInterpolation('%(item_dir)s/wget.log'),
             '--no-check-certificate',
@@ -249,6 +254,19 @@ class WgetArgs(object):
             if item_type in ('v', 'v1', 'v2'):
                 wget_args.extend(['--warc-header', 'youtube-video: '+item_value])
                 wget_args.append('https://www.youtube.com/watch?v='+item_value)
+                wget_args.extend(['--header', 'Cookie: '+'; '.join(
+                    '{}={}'.format(k, v)
+                    for k, v in {
+                        **requests.get(
+                            wget_args[-1],
+                            headers={
+                                'User-Agent': USER_AGENT,
+                            },
+                            cookies=COOKIES
+                        ).cookies.get_dict(domain='.youtube.com'),
+                        **COOKIES
+                    }.items()
+                )])
                 if item_type == 'v1':
                     v_items[0].append(item_value)
                 elif item_type == 'v2':

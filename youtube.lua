@@ -541,6 +541,16 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     )
   end
 
+  local function find_external_video_id(data)
+    for k, v in pairs(data) do
+      if type(v) == "table" then
+        find_external_video_id(v)
+      elseif type(k) == "string" and k == "externalVideoId" then
+        discovered_self["v2:" .. v] = true
+      end
+    end
+  end
+
   local match = string.match(url, "^(https?://[^/]*ytimg%.com/.+maxresdefault.+)%?v=")
   if match then
     check(match)
@@ -715,6 +725,15 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           current_url = current_url .. "&video_id=" .. item_value
           allowed_urls[current_url] = true
           check(current_url)
+        end
+      end
+      -- ADVERTISEMENT
+      if initial_player["adSlots"] then
+        for _, data in pairs(initial_player["adSlots"]) do
+          for video_id in string.gmatch(JSON:encode(data), '"externalVideoId"%s*:%s*"([^"]+)"') do
+            print("Found advertisements", video_id)
+            discovered_self["v2:" .. video_id] = true
+          end
         end
       end
       -- CAPTIONS

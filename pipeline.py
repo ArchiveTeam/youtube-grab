@@ -52,7 +52,7 @@ WGET_AT = find_executable(
     'Wget+AT',
     HigherVersion(
         r'(GNU Wget 1\.[0-9]{2}\.[0-9]{1}-at\.[0-9]{8}\.[0-9]{2})[^0-9a-zA-Z\.-_]',
-        'GNU Wget 1.21.3-at.20230623.01'
+        'GNU Wget 1.21.3-at.20241119.01'
     ),
     [
         './wget-at',
@@ -69,7 +69,7 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20240812.02'
+VERSION = '20241119.01'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 TRACKER_ID = 'youtube'
 TRACKER_HOST = 'legacy-api.arpa.li'

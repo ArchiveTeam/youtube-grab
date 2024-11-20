@@ -253,8 +253,11 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
   end
 
   local function decrypt_n(n, code)
-    print("extracting n description function", n)
+    --[[print("extracting n description function", n)
     local f_name = string.match(code, '%([0-9a-zA-Z%$]+%s*=%s*([0-9a-zA-Z%$]+)%([0-9a-zA-Z%$]+%)%s*,%s*[0-9a-zA-Z%$]+%.set%(%s*"n"')
+    if not f_name then
+      f_name = string.match(code, '%([0-9a-zA-Z%$]+%s*=%s*([0-9a-zA-Z%$]+)%([0-9a-zA-Z%$]+%)%s*,%s*[0-9a-zA-Z%$]+%.set%(%s*"n"')
+    end
     if not f_name then
       f_name = string.match(code, ',%s*[0-9a-zA-Z%$]+%.set%(%s*"n"%s*,%s*[0-9a-zA-Z%$]+%s*%)%s*,%s*[0-9a-zA-Z%$]+%.length%s*||%s*([0-9a-zA-Z%$]+)%(""%)')
     end
@@ -265,7 +268,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     local f_code = string.match(code, f_name .. "(%s*=%s*function%s*%(a%)%s*{.-return%s+[0-9a-zA-Z%.]+%([0-9a-zA-Z%$]+%s*,%s*%(\"\",\"\"%)%)%s*};)")
     if not f_code then
       f_code = string.match(code, f_name .. "(%s*=%s*function%s*%(a%)%s*{.-return%s+[0-9a-zA-Z%.]+%(\"\"%)%s*};)")
-    end
+    end]]
+    local f_code = string.match(string.reverse(code), '(;}%)""%(nioj%.[0-9a-zA-Z$]+%s+nruter%s*}%s*[0-9a-zA-Z$]+%s*%+%s*"[^"]+_tpecxe_decnahne".-{%s*%)%s*a%(noitcnuf%s*=%s*)[0-9a-zA-Z$]+')
+    f_code = string.reverse(f_code)
     print("extracted code")
     local filename = item_dir .. "/temp_func.js"
     local file = io.open(filename, "w")

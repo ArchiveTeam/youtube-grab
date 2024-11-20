@@ -1,9 +1,8 @@
-dofile("table_show.lua")
-dofile("urlcode.lua")
 local urlparse = require("socket.url")
 local http = require("socket.http")
 local https = require("ssl.https")
-JSON = (loadfile "JSON.lua")()
+local cjson = require("cjson")
+local utf8 = require("utf8")
 
 local item_dir = os.getenv("item_dir")
 local warc_file_base = os.getenv("warc_file_base")
@@ -63,9 +62,9 @@ end
 
 local ids = {}
 
-for ignore in io.open("ignore-list", "r"):lines() do
+--[[for ignore in io.open("ignore-list", "r"):lines() do
   downloaded[ignore] = true
-end
+end]]
 
 kill_grab = function(item)
   io.stdout:write("Aborting crawling.\n")
@@ -499,7 +498,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         {
           url="https://www.youtube.com" .. api_url .. "?key=" .. api_key .. s,
           method="POST",
-          body_data=JSON:encode({
+          body_data=cjson.encode({
             context=current_context,
             continuation=continuation
           }),
@@ -566,9 +565,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     and not string.match(url, "^https?://[^/]*ytimg%.com") then
     html = read_file(file)
     if string.match(url, "^https?://[^/]*youtube%.com/watch%?v=") then
-      local initial_data = JSON:decode(string.match(html, "<script[^>]+>var%s+ytInitialData%s*=%s*({.-})%s*;%s*</script>"))
-      local initial_player = JSON:decode(string.match(html, "<script[^>]+>var%s+ytInitialPlayerResponse%s*=%s*({.-})%s*;%s*</script>"))
-      local ytplayer_data = JSON:decode(string.match(html, "ytcfg%.set%(({.-})%)%s*;%s*window%.ytcfg%.obfuscatedData_"))
+      local initial_data = cjson.decode(string.match(html, "<script[^>]+>var%s+ytInitialData%s*=%s*({.-})%s*;%s*</script>"))
+      local initial_player = cjson.decode(string.match(html, "<script[^>]+>var%s+ytInitialPlayerResponse%s*=%s*({.-})%s*;"))
+      local ytplayer_data = cjson.decode(string.match(html, "ytcfg%.set%(({.-})%)%s*;%s*window%.ytcfg%.obfuscatedData_"))
       if ytplayer_data["XSRF_FIELD_NAME"] ~= "session_token" then
         error("Could not find a session_token.")
       end
@@ -735,7 +734,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       -- ADVERTISEMENT
       if initial_player["adSlots"] then
         for _, data in pairs(initial_player["adSlots"]) do
-          for video_id in string.gmatch(JSON:encode(data), '"externalVideoId"%s*:%s*"([^"]+)"') do
+          for video_id in string.gmatch(cjson.encode(data), '"externalVideoId"%s*:%s*"([^"]+)"') do
             print("Found advertisements", video_id)
             discovered_self["v2:" .. video_id] = true
           end
@@ -776,7 +775,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end
     -- OLD COMMENT STYLE
     if string.match(url, "^https?://[^/]*youtube%.com/comment_service_ajax") then
-      local data = JSON:decode(html)
+      local data = cjson.decode(html)
       local key_name = "itemSectionContinuation"
       local replies = false
       local with_next = false
@@ -823,7 +822,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end
     -- NEW COMMENT STYLE
     if string.match(url, "^https?://[^/]*youtube.com/youtubei/v1/next") then
-      local data = JSON:decode(html)["onResponseReceivedEndpoints"]
+      local data = cjson.decode(html)["onResponseReceivedEndpoints"]
       local just_sorted = false
       local pretty_print = "no"
       if string.match(url, "&prettyPrint=false") then
@@ -898,7 +897,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     html = string.gsub(
       html, "\\[uU]([0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F])",
       function (s)
-        return unicode_codepoint_as_utf8(tonumber(s, 16))
+        return utf8.char(tonumber(s, 16))
       end
     )
     html = string.gsub(html, "\\/", "/")
@@ -911,7 +910,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         queue_item(type_, s)
       end
       for s in string.gmatch(html, name .. "[sS][\"']%s*:%s*(%[[^%]]+%])") do
-        for _, v in pairs(JSON:decode(s)) do
+        for _, v in pairs(cjson.decode(s)) do
           queue_item(type_, v)
         end
       end

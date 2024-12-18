@@ -27,12 +27,10 @@ local outlinks = {}
 local bad_items = {}
 local allowed_urls = {}
 
-local xsrf_token = nil
+local context = {}
 local post_headers = nil
 local current_referer = nil
 local current_content = nil
-local api_key = nil
-local api_version = nil
 local sorted_new = {}
 local decrypted_ns = {}
 
@@ -109,10 +107,8 @@ set_new_item = function(url)
   local type_, match = get_item(url)
   if match and not ids[match] then
     sorted_new = {}
-    xsrf_token = nil
+    context = {}
     post_headers = nil
-    api_key = nil
-    api_version = nil
     current_content = nil
     abortgrab = false
     exitgrab = false
@@ -153,6 +149,10 @@ allowed = function(url, parenturl)
   --[[if string.match(urlparse.unescape(url), "[<>\\%*%$%^%[%],%(%){}]") then
     return false
   end]]
+
+  if allowed_urls[url] then
+    return true
+  end
 
   local tested = {}
   for s in string.gmatch(url, "([^/]+)") do
@@ -251,6 +251,20 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end
   end
 
+  local function execute_js(code, arg)
+    local filename = item_dir .. "/temp_func.js"
+    local file = io.open(filename, "w")
+    file:write("func" .. code .. 'console.log(func("' .. arg .. '"));')
+    file:close()
+    local command = "node " .. filename
+    local stream = io.popen(command)
+    local output = stream:read("*a")
+    stream:close()
+    local result = string.match(output, "^([^%s]+)")
+    assert(result ~= nil)
+    return result
+  end
+
   local function decrypt_n(n, code)
     --[[print("extracting n description function", n)
     local f_name = string.match(code, '%([0-9a-zA-Z%$]+%s*=%s*([0-9a-zA-Z%$]+)%([0-9a-zA-Z%$]+%)%s*,%s*[0-9a-zA-Z%$]+%.set%(%s*"n"')
@@ -268,24 +282,35 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     if not f_code then
       f_code = string.match(code, f_name .. "(%s*=%s*function%s*%(a%)%s*{.-return%s+[0-9a-zA-Z%.]+%(\"\"%)%s*};)")
     end]]
-    local f_code = string.match(string.reverse(code), '(;}%)""%(nioj%.[0-9a-zA-Z$]+%s+nruter%s*}%s*[0-9a-zA-Z$]+%s*%+%s*"[^"]+_tpecxe_decnahne".-{%s*%)%s*a%(noitcnuf%s*=%s*)[0-9a-zA-Z$]+')
+    --local f_code = string.match(string.reverse(code), '(;}%)""%(nioj%.[0-9a-zA-Z$]+%s+nruter%s*}%s*[0-9a-zA-Z$]+%s*%+%s*"[^"]+_tpecxe_decnahne".-{%s*%)%s*a%(noitcnuf%s*=%s*)[0-9a-zA-Z$]+')
+    local f_code = string.match(string.reverse(code), '(;}%)""%(nioj%.[0-9a-zA-Z$]+%s+nruter%s*}%s*[0-9a-zA-Z$]+%s*%+%s*"_8w_[^"]+".-{%s*%)%s*[a-zA-Z]%(noitcnuf%s*=%s*)[0-9a-zA-Z$]+')
     f_code = string.reverse(f_code)
-    print("extracted code")
-    local filename = item_dir .. "/temp_func.js"
-    local file = io.open(filename, "w")
-    file:write("func" .. f_code .. 'console.log(func("' .. n .. '"));')
-    file:close()
-    local command = "node " .. filename
-    print("executing code", command)
-    local stream = io.popen(command)
-    local output = stream:read("*a")
-    stream:close()
-    local new_n = string.match(output, "^([^%s]+)")
-    print("decrypted n to", new_n)
+    f_code = string.gsub(f_code, 'if%(typeof [0-9a-zA-Z]+==="undefined"%)return [0-9a-zA-Z]+;', "")
+    local new_n = execute_js(f_code, n)
+    print("decrypted n " .. n .. " to " .. new_n)
+    assert(n ~= new_n)
     return new_n
   end
 
-  local function interpret_javascript(key, code, f_name)
+  local function decrypt_sig(s, code)
+    local f_name = nil
+    for _, pattern in pairs({
+      "m=([0-9a-zA-Z%$]+)%(decodeURIComponent%(h%.s%)%)",
+      "%(c=([0-9a-zA-Z%$]+)%(decodeURIComponent%(c%)%)",
+      "[A-Z]&&%([A-Z]=([a-zA-Z_]+)%(decodeURIComponent%([A-Z]%)%)"
+    }) do
+      f_name = string.match(code, pattern)
+      if f_name then
+        break
+      end
+    end
+    local f_code = string.match(code, f_name .. "(=function%([^%)]+%){[^}]+};)")
+    local varname = string.match(f_code, ";([a-zA-Z_]+)%.[a-zA-Z_]+%([a-zA-Z],[0-9]+%);")
+    local f_var = string.match(code, "(var " .. varname .. "={[a-zA-Z_]+:function.-}};)")
+    return execute_js(f_code .. f_var, s)
+  end
+
+  --[[local function interpret_javascript(key, code, f_name)
     print("reading decryption rules")
     print(" - name:", f_name)
     local f_content = string.match(code, f_name .. "=function%(a%){([^}]+)}")
@@ -344,7 +369,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       end
     end
     return table.concat(a, "")
-  end
+  end]]
 
   local function check_list_length(l)
     local count = 0
@@ -496,7 +521,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       table.insert(
         urls,
         {
-          url="https://www.youtube.com" .. api_url .. "?key=" .. api_key .. s,
+          url="https://www.youtube.com" .. api_url .. "?key=" .. context["api_key"] .. s,
           method="POST",
           body_data=cjson.encode({
             context=current_context,
@@ -555,6 +580,131 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end
   end
 
+  local function queue_streams(initial_player)
+    local current_diff = nil
+    local current_height = nil
+    local current_fps = nil
+    local current_video_codec = nil
+    local current_video_url = nil
+    local current_audio_bitrate = {}
+    local current_audio_url = {}
+    local current_audio_default = nil
+    for _, format in pairs(initial_player["streamingData"]["adaptiveFormats"]) do
+      local mime = format["mimeType"]
+      if string.match(mime, "^video/") then
+        local height = format["height"]
+        local fps = format["fps"]
+        local codec = string.match(mime, "codecs=\"([0-9a-zA-Z]+)")
+        print("Checking video with fps " .. fps .. ", height " .. height .. ", codec " .. codec)
+        local diff = math.abs(height-480)
+        if not current_video_url
+          or (item_type == "v1" and diff < current_diff and not context["180"] and not context["360"])
+          or (
+            (context["180"] or context["360"] or item_type == "v2")
+            and (
+              height > current_height
+              or (
+                height >= current_height
+                and (
+                  fps > current_fps
+                  or (current_video_codec ~= "vp9" and codec == "vp9")
+                )
+              )
+            )
+          ) then
+          current_diff = diff
+          current_fps = fps
+          current_video_codec = codec
+          current_height = height
+          current_video_url = {url=format["url"], cipher=format["signatureCipher"]}
+        end
+      elseif string.match(mime, "^audio/") then
+        local bitrate = format["bitrate"]
+        local name = ""
+        if format["audioTrack"] and format["audioTrack"]["displayName"] then
+          name = format["audioTrack"]["displayName"]
+          if format["audioTrack"]["audioIsDefault"] then
+            if current_audio_default ~= nil and current_audio_default ~= name then
+              error("More than two default audio streams?")
+            end
+            current_audio_default = name
+          end
+        end
+        print("Checking audio '" .. name .. "' with bitrate " .. bitrate)
+        if not current_audio_url[name]
+          or bitrate > current_audio_bitrate[name] then
+          current_audio_bitrate[name] = bitrate
+          current_audio_url[name] = {url=format["url"], cipher=format["signatureCipher"]}
+        end
+      else
+        error("Unknown media... please report on IRC or archiveteam@archiveteam.org!")
+      end
+    end
+
+    print("Chosen video with fps " .. current_fps .. ", height " .. current_height .. ", codec " .. current_video_codec)
+    for audio_name, bitrate in pairs(current_audio_bitrate) do
+      local name_string = audio_name
+      if string.len(name_string) > 0 then
+        name_string = ' \'' .. name_string .. '\''
+      end
+      print("Chosen audio" .. name_string .. " with bitrate " .. bitrate)
+    end
+
+    local player_js_url = urlparse.absolute("https://www.youtube.com/", context["ytplayer"]["PLAYER_JS_URL"])
+    print(" - using PLAYER_JS_URL", player_js_url)
+    local body, _, _, _ = https.request(player_js_url)
+    if math.random() < 0.05 then
+      check(player_js_url)
+    end
+
+    local streams = {
+      ["video"]=current_video_url,
+    }
+    audio_stream_count = 0
+    for audio_name, d in pairs(current_audio_url) do
+      audio_stream_count = audio_stream_count + 1
+      streams["audio " .. audio_name] = d
+    end
+
+    for stream_type, stream_data in pairs(streams) do
+      if stream_data["url"] == nil then
+        print("found encrypted signature")
+        local signature_cipher = stream_data["cipher"]
+        --print(" - signature cipher", signature_cipher)
+        local s = urlparse.unescape(string.match(signature_cipher, "^s=([^&]+)"))
+        local sp = urlparse.unescape(string.match(signature_cipher, "&sp=([^&]+)"))
+        local url_ = urlparse.unescape(string.match(signature_cipher, "&url=([^&]+)"))
+        local s_decrypted = decrypt_sig(s, body)
+        stream_data["url"] = url_ .. "&" .. sp .. "=" .. s_decrypted
+        --print(" - decrypted signature to", stream_data["url"])
+      end
+      local newurl = stream_data["url"]
+      local n = string.match(newurl, "[%?&]n=([^&]+)")
+      if n then
+        local new_n = decrypted_ns[n]
+        if not new_n then
+          new_n = decrypt_n(n, body)
+          decrypted_ns[n] = new_n
+        end
+        newurl = string.gsub(newurl, "([%?&]n=)[^&]+", "%1" .. string.gsub(new_n, "%-", "%%%-"))
+      end
+      allowed_urls[newurl] = true
+      check(newurl)
+      if not string.match(newurl, "&video_id=") then
+        newurl = newurl .. "&video_id=" .. item_value
+      end
+      local stream_type_2 = string.match(stream_type, "^([a-z]+)")
+      newurl = newurl .. "&stream_type=" .. stream_type_2
+      if stream_type_2 == "audio" and audio_stream_count > 1 then
+        local name = string.match(stream_type, "^[a-z]+ (.+)$")
+        assert(current_audio_default ~= nil)
+        newurl = newurl .. "&stream_name=" .. urlparse.escape(name) .. "&stream_is_default=" .. tostring(current_audio_default==name)
+      end
+      allowed_urls[newurl] = true
+      check(newurl)
+    end
+  end
+
   local match = string.match(url, "^(https?://[^/]*ytimg%.com/.+maxresdefault.+)%?v=")
   if match then
     check(match)
@@ -564,30 +714,34 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     and not string.match(url, "^https?://[^/]*googlevideo%.com")
     and not string.match(url, "^https?://[^/]*ytimg%.com") then
     html = read_file(file)
-    if string.match(url, "^https?://[^/]*youtube%.com/watch%?v=") then
-      local initial_data = cjson.decode(string.match(html, "<script[^>]+>var%s+ytInitialData%s*=%s*({.-})%s*;%s*</script>"))
-      local initial_player = cjson.decode(string.match(html, "<script[^>]+>var%s+ytInitialPlayerResponse%s*=%s*({.-})%s*;"))
-      local ytplayer_data = cjson.decode(string.match(html, "ytcfg%.set%(({.-})%)%s*;%s*window%.ytcfg%.obfuscatedData_"))
-      if ytplayer_data["XSRF_FIELD_NAME"] ~= "session_token" then
+    if url == "https://www.youtube.com/youtubei/v1/player" then
+      queue_streams(cjson.decode(html))
+    end
+    if string.match(url, "^https?://[^/]*youtube%.com/watch%?v=[^&]+$") then
+      check("https://youtu.be/" .. item_value)
+      context["initial_data"] = cjson.decode(string.match(html, "<script[^>]+>var%s+ytInitialData%s*=%s*({.-})%s*;%s*</script>"))
+      context["initial_player"] = cjson.decode(string.match(html, "<script[^>]+>var%s+ytInitialPlayerResponse%s*=%s*({.-})%s*;"))
+      context["ytplayer"] = cjson.decode(string.match(html, "ytcfg%.set%(({.-})%)%s*;%s*window%.ytcfg%.obfuscatedData_"))
+      if context["ytplayer"]["XSRF_FIELD_NAME"] ~= "session_token" then
         error("Could not find a session_token.")
       end
       -- INITIAL COMMENT CONTINUATION
       current_referer = url
-      xsrf_token = ytplayer_data["XSRF_TOKEN"]
+      context["xsrf_token"] = context["ytplayer"]["XSRF_TOKEN"]
       post_headers = {
         ["Content-Type"]=nil,
-        ["X-Youtube-Client-Name"]=ytplayer_data["INNERTUBE_CONTEXT_CLIENT_NAME"],
-        ["X-Youtube-Client-Version"]=ytplayer_data["INNERTUBE_CONTEXT_CLIENT_VERSION"],
+        ["X-Youtube-Client-Name"]=context["ytplayer"]["INNERTUBE_CONTEXT_CLIENT_NAME"],
+        ["X-Youtube-Client-Version"]=context["ytplayer"]["INNERTUBE_CONTEXT_CLIENT_VERSION"],
         Referer=current_referer
       }
-      api_key = ytplayer_data["INNERTUBE_API_KEY"]
-      api_version = ytplayer_data["INNERTUBE_API_VERSION"]
-      set_current_context(ytplayer_data["INNERTUBE_CONTEXT"])
-      initial_data = initial_data["contents"]["twoColumnWatchNextResults"]["results"]["results"]["contents"]
+      context["api_key"] = context["ytplayer"]["INNERTUBE_API_KEY"]
+      context["api_version"] = context["ytplayer"]["INNERTUBE_API_VERSION"]
+      set_current_context(context["ytplayer"]["INNERTUBE_CONTEXT"])
+      local initial_data = context["initial_data"]["contents"]["twoColumnWatchNextResults"]["results"]["results"]["contents"]
       local found = false
       local found_info = false
-      local is_180 = false
-      local is_360 = false
+      context["180"] = false
+      context["360"] = false
       for _, d in pairs(initial_data) do
         data = d["videoPrimaryInfoRenderer"]
         if data and not found_info then
@@ -596,9 +750,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
             run = run["text"]
             if run then
               if string.match(run, "180") then
-                is_180 = true
+                context["180"] = true
               elseif string.match(run, "360") then
-                is_360 = true
+                context["360"] = true
               end
             end
           end
@@ -608,9 +762,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
               badge = badge["metadataBadgeRenderer"]
               if badge then
                 if string.match(badge["label"], "180") then
-                  is_180 = true
+                  context["180"] = true
                 elseif string.match(badge["label"], "360") then
-                  is_360 = true
+                  context["360"] = true
                 end
               end
             end
@@ -647,7 +801,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       local current_url = nil
       local current_max_height = nil
       local current_max_url = nil
-      for _, data in pairs(initial_player["videoDetails"]["thumbnail"]["thumbnails"]) do
+      for _, data in pairs(context["initial_player"]["videoDetails"]["thumbnail"]["thumbnails"]) do
         local height = data["height"]
         if not current_url or height < current_height then
           current_height = height
@@ -667,81 +821,110 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           check(current_max_url)
         end
       end
-      -- VIDEO
+      -- VIDEO INITIAL
       if item_type == "v1" or item_type == "v2" then
-        local current_diff = nil
-        local current_height = nil
-        local current_url = nil
-        for _, format in pairs(initial_player["streamingData"]["formats"]) do
-          if string.match(format["mimeType"], "^video/")
-            and format["audioSampleRate"] then
-            local height = format["height"]
-            local diff = math.abs(height-480)
-            if not current_url
-              or (item_type == "v1" and diff < current_diff and not is_180 and not is_360)
-              or (height > current_height and (is_180 or is_360 or item_type == "v2")) then
-              current_diff = diff
-              current_height = height
-              local player_js_url = ytplayer_data["PLAYER_JS_URL"]
-              player_js_url = urlparse.absolute("https://www.youtube.com/", player_js_url)
-              print(" - using PLAYER_JS_URL", player_js_url)
-              local body, _, _, _ = https.request(player_js_url)
-              
-              if not format["url"] then
-                print("found encrypted signature")
-                if math.random() < 0.05 then
-                  check(player_js_url)
-                end
-                local signature_cipher = format["signatureCipher"]
-                print(" - signature cipher", signature_cipher)
-                local s = urlparse.unescape(string.match(signature_cipher, "^s=([^&]+)"))
-                local sp = urlparse.unescape(string.match(signature_cipher, "&sp=([^&]+)"))
-                local url_ = urlparse.unescape(string.match(signature_cipher, "&url=([^&]+)"))
-                local name = string.match(body, "m=([0-9a-zA-Z%$]+)%(decodeURIComponent%(h%.s%)%)")
-                if not name then
-                  name = string.match(body, "%(c=([0-9a-zA-Z%$]+)%(decodeURIComponent%(c%)%)")
-                end
-                print(" - function name", name)
-                local s_decrypted = interpret_javascript(s, body, name)
-                current_url = url_ .. "&" .. sp .. "=" .. s_decrypted
-                print(" - decrypted signature to", current_url)
-              else
-                current_url = format["url"]
-              end
-              local n = string.match(current_url, "[%?&]n=([^&]+)")
-              if n then
-                local new_n = decrypted_ns[n]
-                if not new_n then
-                  new_n = decrypt_n(n, body)
-                  decrypted_ns[n] = new_n
-                end
-                current_url = string.gsub(current_url, "([%?&]n=)[^&]+", "%1" .. string.gsub(new_n, "%-", "%%%-"))
-              end
-            end
-          end
+        local get_type = "ios"
+        if get_type == "mweb" then
+        local mweb_agent = "Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)"
+        local mweb_version = "2.20241202.07.00"
+        allowed_urls["https://www.youtube.com/youtubei/v1/player"] = true
+        table.insert(
+          urls,
+          {
+            url="https://www.youtube.com/youtubei/v1/player",
+            method="POST",
+            body_data=cjson.encode({
+              ["context"]={
+                  ["client"]={
+                    ["clientName"]="MWEB",
+                    ["clientVersion"]=mweb_version,
+                    ["userAgent"]=mweb_agent,
+                    ["hl"]="en",
+                    ["timeZone"]="UTC",
+                    ["utcOffsetMinutes"]=0
+                  }
+              },
+              ["videoId"]=item_value,
+              ["playbackContext"]={
+                  ["contentPlaybackContext"]={
+                      ["html5Preference"]="HTML5_PREF_WANTS",
+                      ["signatureTimestamp"]=context["ytplayer"]["STS"]
+                  }
+              },
+              ["contentCheckOk"]=true,
+              ["racyCheckOk"]=true
+            }),
+            headers={
+              ["X-YouTube-Client-Name"]="2",
+              ["X-YouTube-Client-Version"]=mweb_version,
+              ["Origin"]="https://www.youtube.com",
+              ["User-Agent"]=mweb_agent,
+              ["content-type"]="application/json",
+              ["X-Goog-Visitor-Id"]=context["ytplayer"]["VISITOR_DATA"]
+            }
+          }
+        )
+        elseif get_type == "ios" then
+        local ios_agent = "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)"
+        local ios_version = "19.45.4"
+        allowed_urls["https://www.youtube.com/youtubei/v1/player"] = true
+        table.insert(
+          urls,
+          {
+            url="https://www.youtube.com/youtubei/v1/player",
+            method="POST",
+            body_data=cjson.encode({
+              ["context"]={
+                  ["client"]={
+                    ["clientName"]="IOS",
+                    ["clientVersion"]=ios_version,
+                    ["deviceMake"]="Apple",
+                    ["deviceModel"]="iPhone16,2",
+                    ["userAgent"]=ios_agent,
+                    ["osName"]="iPhone",
+                    ["osVersion"]="18.1.0.22B83",
+                    ["hl"]="en",
+                    ["timeZone"]="UTC",
+                    ["utcOffsetMinutes"]=0
+                  }
+              },
+              ["videoId"]=item_value,
+              ["playbackContext"]={
+                  ["contentPlaybackContext"]={
+                      ["html5Preference"]="HTML5_PREF_WANTS",
+                      ["signatureTimestamp"]=context["ytplayer"]["STS"]
+                  }
+              },
+              ["contentCheckOk"]=true,
+              ["racyCheckOk"]=true
+            }),
+            headers={
+              ["X-YouTube-Client-Name"]="5",
+              ["X-YouTube-Client-Version"]=ios_version,
+              ["Origin"]="https://www.youtube.com",
+              ["User-Agent"]=iod_agent,
+              ["content-type"]="application/json",
+              ["X-Goog-Visitor-Id"]=context["ytplayer"]["VISITOR_DATA"]
+            }
+          }
+        )
+        else
+          error("Should not reach this.")
         end
-        if not current_url then
-          error("Could not find a video URL.")
-        end
-        allowed_urls[current_url] = true
-        check(current_url)
-        if not string.match(current_url, "&video_id=") then
-          current_url = current_url .. "&video_id=" .. item_value
-          allowed_urls[current_url] = true
-          check(current_url)
-        end
+        -- old, directly from data in HTML
+        -- queue_streams(context["initial_player"])
       end
       -- ADVERTISEMENT
-      if initial_player["adSlots"] then
-        for _, data in pairs(initial_player["adSlots"]) do
+      if context["initial_player"]["adSlots"] then
+        for _, data in pairs(context["initial_player"]["adSlots"]) do
           for video_id in string.gmatch(cjson.encode(data), '"externalVideoId"%s*:%s*"([^"]+)"') do
-            print("Found advertisements", video_id)
+            print("Found advertisement", video_id)
             discovered_self["v2:" .. video_id] = true
           end
         end
       end
       -- CAPTIONS
-      local captions = initial_player["captions"]
+      local captions = context["initial_player"]["captions"]
       if captions then
         local translations = {""}
         local translation_versions = captions["playerCaptionsTracklistRenderer"]["translationLanguages"]
@@ -869,7 +1052,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
             end
           end
           for _, item in pairs(continuation_items) do
-            -- COMMENTS ON COMMENTS 
+            -- COMMENTS ON COMMENTS
             local comment_thread_renderer = item["commentThreadRenderer"]
             if comment_thread_renderer then
               local replies = comment_thread_renderer["replies"]

@@ -586,7 +586,6 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     local current_fps = nil
     local current_video_codec = nil
     local current_video_url = nil
-    local current_audio_bitrate = {}
     local current_audio_url = {}
     local current_audio_default = nil
     for _, format in pairs(initial_player["streamingData"]["adaptiveFormats"]) do
@@ -620,7 +619,12 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         end
       elseif string.match(mime, "^audio/") then
         local bitrate = format["bitrate"]
+        local codec = string.match(mime, "codecs=\"([0-9a-zA-Z]+)")
+        local drc = false
         local name = ""
+        if format["isDrc"] then
+          drc = true
+        end
         if format["audioTrack"] and format["audioTrack"]["displayName"] then
           name = format["audioTrack"]["displayName"]
           if format["audioTrack"]["audioIsDefault"] then
@@ -630,11 +634,27 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
             current_audio_default = name
           end
         end
-        print("Checking audio '" .. name .. "' with bitrate " .. bitrate)
+        local name_string = name
+        if string.len(name_string) > 0 then
+          name_string = ' \'' .. name_string .. '\''
+        end
+        print("Checking audio" .. name .. " with bitrate " .. bitrate .. ", DRC " .. tostring(drc) .. ", codec " .. codec)
         if not current_audio_url[name]
-          or bitrate > current_audio_bitrate[name] then
-          current_audio_bitrate[name] = bitrate
-          current_audio_url[name] = {url=format["url"], cipher=format["signatureCipher"]}
+          or (not drc and current_audio_url[name]["drc"])
+          or (
+            (not drc or current_audio_url[name]["drc"])
+            and (
+              bitrate > current_audio_url[name]["bitrate"]
+              --or (codec == "opus" and current_audio_url[name]["codec"] ~= "opus")
+            )
+          ) then
+          current_audio_url[name] = {
+            ["url"] = format["url"],
+            ["cipher"] = format["signatureCipher"],
+            ["bitrate"] = bitrate,
+            ["drc"] = drc,
+            ["codec"] = codec
+          }
         end
       else
         error("Unknown media... please report on IRC or archiveteam@archiveteam.org!")
@@ -642,12 +662,12 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end
 
     print("Chosen video with fps " .. current_fps .. ", height " .. current_height .. ", codec " .. current_video_codec)
-    for audio_name, bitrate in pairs(current_audio_bitrate) do
+    for audio_name, audio_data in pairs(current_audio_url) do
       local name_string = audio_name
       if string.len(name_string) > 0 then
         name_string = ' \'' .. name_string .. '\''
       end
-      print("Chosen audio" .. name_string .. " with bitrate " .. bitrate)
+      print("Chosen audio" .. name_string .. " with bitrate " .. audio_data["bitrate"] .. ", DRC " .. tostring(audio_data["drc"]) .. ", codec " .. audio_data["codec"])
     end
 
     local player_js_url = urlparse.absolute("https://www.youtube.com/", context["ytplayer"]["PLAYER_JS_URL"])

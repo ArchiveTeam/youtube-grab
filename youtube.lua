@@ -185,6 +185,12 @@ wget.callbacks.download_child_p = function(urlpos, parent, depth, start_url_pars
   return false
 end
 
+banned = function()
+  io.stdout:write("You're likely banned, sleeping for 1800 seconds.\n")
+  io.stdout:flush()
+  os.execute("sleep 1800")
+end
+
 wget.callbacks.get_urls = function(file, url, is_css, iri)
   local urls = {}
   local html = nil
@@ -745,6 +751,19 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       if context["ytplayer"]["XSRF_FIELD_NAME"] ~= "session_token" then
         error("Could not find a session_token.")
       end
+      local playability_status = context["initial_player"]["playabilityStatus"]
+      if playability_status["status"] ~= "OK" then
+        if playability_status["status"] == "LOGIN_REQUIRED"
+          and string.match(playability_status["reason"], " bot")
+          and string.match(playability_status["reason"], "[sS]ign in") then
+          banned()
+        else
+          io.stdout:write("You are unable to play this video.\n")
+          io.stdout:flush()
+        end
+        abort_item()
+        return nil
+      end
       -- INITIAL COMMENT CONTINUATION
       current_referer = url
       context["xsrf_token"] = context["ytplayer"]["XSRF_TOKEN"]
@@ -1161,11 +1180,6 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
 end
 
 wget.callbacks.httploop_result = function(url, err, http_stat)
-  local function banned()
-    print("you're likely banned, sleeping for 1800 seconds.")
-    os.execute("sleep 1800")
-  end
-
   status_code = http_stat["statcode"]
 
   set_new_item(url["url"])

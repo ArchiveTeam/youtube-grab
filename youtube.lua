@@ -34,6 +34,13 @@ local current_content = nil
 local sorted_new = {}
 local decrypted_ns = {}
 
+local audio_quality = {
+  ["ultralow"] = 1,
+  ["low"] = 2,
+  ["medium"] = 3,
+  ["high"] = 4
+}
+
 local v1_items = {}
 for s in string.gmatch(v1_items_s, "([^;]+)") do
   v1_items[s] = true
@@ -586,7 +593,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end
   end
 
-  local function queue_streams(initial_player)
+  local function queue_streams(adaptive_formats)
     local current_diff = nil
     local current_height = nil
     local current_fps = nil
@@ -594,7 +601,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     local current_video_url = nil
     local current_audio_url = {}
     local current_audio_default = nil
-    for _, format in pairs(initial_player["streamingData"]["adaptiveFormats"]) do
+    for _, format in pairs(adaptive_formats) do
       local mime = format["mimeType"]
       if string.match(mime, "^video/") then
         local height = format["height"]
@@ -628,6 +635,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         local codec = string.match(mime, "codecs=\"([0-9a-zA-Z]+)")
         local drc = false
         local name = ""
+        local quality = string.match(string.lower(format["audioQuality"]), "([^_]+)$")
         if format["isDrc"] then
           drc = true
         end
@@ -644,14 +652,17 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         if string.len(name_string) > 0 then
           name_string = ' \'' .. name_string .. '\''
         end
-        print("Checking audio" .. name .. " with bitrate " .. bitrate .. ", DRC " .. tostring(drc) .. ", codec " .. codec)
+        print("Checking audio" .. name .. " with bitrate " .. bitrate .. ", quality " .. quality .. ", DRC " .. tostring(drc) .. ", codec " .. codec)
         if not current_audio_url[name]
           or (not drc and current_audio_url[name]["drc"])
           or (
             (not drc or current_audio_url[name]["drc"])
             and (
-              bitrate > current_audio_url[name]["bitrate"]
-              --or (codec == "opus" and current_audio_url[name]["codec"] ~= "opus")
+              audio_quality[quality] > audio_quality[current_audio_url[name]["quality"]]
+              or (
+                audio_quality[quality] >= audio_quality[current_audio_url[name]["quality"]]
+                and (codec == "opus" and current_audio_url[name]["codec"] ~= "opus")
+              )
             )
           ) then
           current_audio_url[name] = {
@@ -659,7 +670,8 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
             ["cipher"] = format["signatureCipher"],
             ["bitrate"] = bitrate,
             ["drc"] = drc,
-            ["codec"] = codec
+            ["codec"] = codec,
+            ["quality"] = quality
           }
         end
       else
@@ -673,7 +685,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       if string.len(name_string) > 0 then
         name_string = ' \'' .. name_string .. '\''
       end
-      print("Chosen audio" .. name_string .. " with bitrate " .. audio_data["bitrate"] .. ", DRC " .. tostring(audio_data["drc"]) .. ", codec " .. audio_data["codec"])
+      print("Chosen audio" .. name_string .. " with bitrate " .. audio_data["bitrate"] .. ", quality " .. audio_data["quality"] .. ", DRC " .. tostring(audio_data["drc"]) .. ", codec " .. audio_data["codec"])
     end
 
     local player_js_url = urlparse.absolute("https://www.youtube.com/", context["ytplayer"]["PLAYER_JS_URL"])
@@ -741,7 +753,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     and not string.match(url, "^https?://[^/]*ytimg%.com") then
     html = read_file(file)
     if url == "https://www.youtube.com/youtubei/v1/player" then
-      queue_streams(cjson.decode(html))
+      queue_streams(cjson.decode(html)["streamingData"]["adaptiveFormats"])
     end
     if string.match(url, "^https?://[^/]*youtube%.com/watch%?v=[^&]+$") then
       check("https://youtu.be/" .. item_value)

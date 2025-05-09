@@ -876,89 +876,89 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       if item_type == "v1" or item_type == "v2" then
         local get_type = "ios"
         if get_type == "mweb" then
-        local mweb_agent = "Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)"
-        local mweb_version = "2.20241202.07.00"
-        allowed_urls["https://www.youtube.com/youtubei/v1/player"] = true
-        table.insert(
-          urls,
-          {
-            url="https://www.youtube.com/youtubei/v1/player",
-            method="POST",
-            body_data=cjson.encode({
-              ["context"]={
-                  ["client"]={
-                    ["clientName"]="MWEB",
-                    ["clientVersion"]=mweb_version,
-                    ["userAgent"]=mweb_agent,
-                    ["hl"]="en",
-                    ["timeZone"]="UTC",
-                    ["utcOffsetMinutes"]=0
-                  }
-              },
-              ["videoId"]=item_value,
-              ["playbackContext"]={
-                  ["contentPlaybackContext"]={
-                      ["html5Preference"]="HTML5_PREF_WANTS",
-                      ["signatureTimestamp"]=context["ytplayer"]["STS"]
-                  }
-              },
-              ["contentCheckOk"]=true,
-              ["racyCheckOk"]=true
-            }),
-            headers={
-              ["X-YouTube-Client-Name"]="2",
-              ["X-YouTube-Client-Version"]=mweb_version,
-              ["Origin"]="https://www.youtube.com",
-              ["User-Agent"]=mweb_agent,
-              ["content-type"]="application/json",
-              ["X-Goog-Visitor-Id"]=context["ytplayer"]["VISITOR_DATA"]
+          local mweb_agent = "Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)"
+          local mweb_version = "2.20241202.07.00"
+          allowed_urls["https://www.youtube.com/youtubei/v1/player"] = true
+          table.insert(
+            urls,
+            {
+              url="https://www.youtube.com/youtubei/v1/player",
+              method="POST",
+              body_data=cjson.encode({
+                ["context"]={
+                    ["client"]={
+                      ["clientName"]="MWEB",
+                      ["clientVersion"]=mweb_version,
+                      ["userAgent"]=mweb_agent,
+                      ["hl"]="en",
+                      ["timeZone"]="UTC",
+                      ["utcOffsetMinutes"]=0
+                    }
+                },
+                ["videoId"]=item_value,
+                ["playbackContext"]={
+                    ["contentPlaybackContext"]={
+                        ["html5Preference"]="HTML5_PREF_WANTS",
+                        ["signatureTimestamp"]=context["ytplayer"]["STS"]
+                    }
+                },
+                ["contentCheckOk"]=true,
+                ["racyCheckOk"]=true
+              }),
+              headers={
+                ["X-YouTube-Client-Name"]="2",
+                ["X-YouTube-Client-Version"]=mweb_version,
+                ["Origin"]="https://www.youtube.com",
+                ["User-Agent"]=mweb_agent,
+                ["content-type"]="application/json",
+                ["X-Goog-Visitor-Id"]=context["ytplayer"]["VISITOR_DATA"]
+              }
             }
-          }
-        )
+          )
         elseif get_type == "ios" then
-        local ios_agent = "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)"
-        local ios_version = "19.45.4"
-        allowed_urls["https://www.youtube.com/youtubei/v1/player"] = true
-        table.insert(
-          urls,
-          {
-            url="https://www.youtube.com/youtubei/v1/player",
-            method="POST",
-            body_data=cjson.encode({
-              ["context"]={
-                  ["client"]={
-                    ["clientName"]="IOS",
-                    ["clientVersion"]=ios_version,
-                    ["deviceMake"]="Apple",
-                    ["deviceModel"]="iPhone16,2",
-                    ["userAgent"]=ios_agent,
-                    ["osName"]="iPhone",
-                    ["osVersion"]="18.1.0.22B83",
-                    ["hl"]="en",
-                    ["timeZone"]="UTC",
-                    ["utcOffsetMinutes"]=0
-                  }
-              },
-              ["videoId"]=item_value,
-              ["playbackContext"]={
-                  ["contentPlaybackContext"]={
-                      ["html5Preference"]="HTML5_PREF_WANTS",
-                      ["signatureTimestamp"]=context["ytplayer"]["STS"]
-                  }
-              },
-              ["contentCheckOk"]=true,
-              ["racyCheckOk"]=true
-            }),
-            headers={
-              ["X-YouTube-Client-Name"]="5",
-              ["X-YouTube-Client-Version"]=ios_version,
-              ["Origin"]="https://www.youtube.com",
-              ["User-Agent"]=iod_agent,
-              ["content-type"]="application/json",
-              ["X-Goog-Visitor-Id"]=context["ytplayer"]["VISITOR_DATA"]
+          local ios_agent = "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)"
+          local ios_version = "19.45.4"
+          allowed_urls["https://www.youtube.com/youtubei/v1/player"] = true
+          table.insert(
+            urls,
+            {
+              url="https://www.youtube.com/youtubei/v1/player",
+              method="POST",
+              body_data=cjson.encode({
+                ["context"]={
+                    ["client"]={
+                      ["clientName"]="IOS",
+                      ["clientVersion"]=ios_version,
+                      ["deviceMake"]="Apple",
+                      ["deviceModel"]="iPhone16,2",
+                      ["userAgent"]=ios_agent,
+                      ["osName"]="iPhone",
+                      ["osVersion"]="18.1.0.22B83",
+                      ["hl"]="en",
+                      ["timeZone"]="UTC",
+                      ["utcOffsetMinutes"]=0
+                    }
+                },
+                ["videoId"]=item_value,
+                ["playbackContext"]={
+                    ["contentPlaybackContext"]={
+                        ["html5Preference"]="HTML5_PREF_WANTS",
+                        ["signatureTimestamp"]=context["ytplayer"]["STS"]
+                    }
+                },
+                ["contentCheckOk"]=true,
+                ["racyCheckOk"]=true
+              }),
+              headers={
+                ["X-YouTube-Client-Name"]="5",
+                ["X-YouTube-Client-Version"]=ios_version,
+                ["Origin"]="https://www.youtube.com",
+                ["User-Agent"]=iod_agent,
+                ["content-type"]="application/json",
+                ["X-Goog-Visitor-Id"]=context["ytplayer"]["VISITOR_DATA"]
+              }
             }
-          }
-        )
+          )
         else
           error("Should not reach this.")
         end

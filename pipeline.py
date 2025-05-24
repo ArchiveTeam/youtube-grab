@@ -2,7 +2,7 @@
 import datetime
 from distutils.version import StrictVersion
 import hashlib
-import os.path
+import os
 import random
 import re
 from seesaw.config import realize, NumberConfigValue
@@ -69,7 +69,7 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20250523.01'
+VERSION = '20250523.02'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0'
 TRACKER_ID = 'youtube'
 TRACKER_HOST = 'legacy-api.arpa.li'
@@ -244,6 +244,11 @@ class WgetArgs(object):
             '--warc-dedup-url-agnostic',
             '--header', 'Accept-Language: en-US;q=0.9, en;q=0.8'
         ]
+
+        if 'PREFER_IPV4' in os.environ:
+            wget_args.extend(['--prefer-family', 'IPv4'])
+        elif 'PREFER_IPV6' in os.environ:
+            wget_args.extend(['--prefer-family', 'IPv6'])
 
         v_items = [[], []]
 

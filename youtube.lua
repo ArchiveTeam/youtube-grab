@@ -1310,14 +1310,16 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
   end
 
   if string.match(url["url"], "^https?://[^/]*googlevideo%.com/videoplayback") then
-    if seen_200[url["url"]] then
+    if seen_200[url["url"]] == 5 then
       io.stdout:write("Already attempted to download this URL.\n")
       io.stdout:flush()
       discovered_self["v1:" .. item_value] = true
       wget.callbacks.finish()
       return wget.actions.ABORT
+    elseif not seen_200[url["url"]] then
+      seen_200[url["url"]] = 0
     end
-    seen_200[url["url"]] = true
+    seen_200[url["url"]] = seen_200[url["url"]] + 1
   end
 
   tries = 0

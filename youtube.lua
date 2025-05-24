@@ -748,6 +748,25 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     check(match)
   end
 
+  local function json_is_null(d)
+    return d == nil or d == cjson.null
+  end
+
+  local function find_visitor_data(d)
+    local results = {}
+    for k, v in pairs(d) do
+      if type(v) == "table" then
+        for s, _ in pairs(find_visitor_data(v)) do
+          results[s] = true
+        end
+      elseif type(v) == "string"
+        and (k == "VISITOR_DATA" or k == "visitorData") then
+        results[v] = true
+      end
+    end
+    return results
+  end
+
   if allowed(url, nil) and status_code == 200
     and not string.match(url, "^https?://[^/]*googlevideo%.com")
     and not string.match(url, "^https?://[^/]*ytimg%.com") then
@@ -875,6 +894,30 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       -- VIDEO INITIAL
       if item_type == "v1" or item_type == "v2" then
         local get_type = "ios"
+        local visitor_data = context["ytplayer"]["VISITOR_DATA"]
+        if json_is_null(visitor_data) then
+          if not json_is_null(context["ytplayer"]["INNERTUBE_CONTEXT"]["client"])
+            and not json_is_null(context["ytplayer"]["INNERTUBE_CONTEXT"]["client"]["visitorData"]) then
+            visitor_data = context["ytplayer"]["INNERTUBE_CONTEXT"]["client"]["visitorData"]
+          elseif not json_is_null(context["responseContext"])
+            and not json_is_null(context["responseContext"]["visitorData"]) then
+            visitor_data = context["responseContext"]["visitorData"]
+          else
+            local visitors = find_visitor_data(context)
+            for s, _ in pairs(visitors) do
+              print("Found visitor data", s)
+              if json_is_null(visitor_data) then
+                print("... and using it.")
+                visitor_data = s
+              end
+            end
+          end
+        end
+        if json_is_null(visitor_data) then
+          error("Could not find visitor data.")
+        else
+          print("Found visitor data", visitor_data)
+        end
         if get_type == "mweb" then
           local mweb_agent = "Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)"
           local mweb_version = "2.20241202.07.00"
@@ -911,7 +954,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
                 ["Origin"]="https://www.youtube.com",
                 ["User-Agent"]=mweb_agent,
                 ["content-type"]="application/json",
-                ["X-Goog-Visitor-Id"]=context["ytplayer"]["VISITOR_DATA"]
+                ["X-Goog-Visitor-Id"]=visitor_data
               }
             }
           )
@@ -955,7 +998,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
                 ["Origin"]="https://www.youtube.com",
                 ["User-Agent"]=iod_agent,
                 ["content-type"]="application/json",
-                ["X-Goog-Visitor-Id"]=context["ytplayer"]["VISITOR_DATA"]
+                ["X-Goog-Visitor-Id"]=visitor_data
               }
             }
           )

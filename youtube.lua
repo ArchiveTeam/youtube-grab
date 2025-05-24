@@ -772,7 +772,12 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     and not string.match(url, "^https?://[^/]*ytimg%.com") then
     html = read_file(file)
     if url == "https://www.youtube.com/youtubei/v1/player" then
-      queue_streams(cjson.decode(html)["streamingData"]["adaptiveFormats"])
+      local json = cjson.decode(html)
+      if json_is_null(json["streamingData"]) then
+        print("No streaming data found in", html)
+        io.stdout:flush()
+      end
+      queue_streams(json["streamingData"]["adaptiveFormats"])
     end
     if string.match(url, "^https?://[^/]*youtube%.com/watch%?v=[^&]+$") then
       check("https://youtu.be/" .. item_value)

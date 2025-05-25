@@ -110,6 +110,16 @@ get_item = function(url)
   end
 end
 
+merge_tables = function(a, b)
+  local result = {}
+  for _, t in pairs({a, b}) do
+    for k, v in pairs(t) do
+      result[k] = v
+    end
+  end
+  return result
+end
+
 set_new_item = function(url)
   local type_, match = get_item(url)
   if match and not ids[match] then
@@ -773,11 +783,20 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     html = read_file(file)
     if url == "https://www.youtube.com/youtubei/v1/player" then
       local json = cjson.decode(html)
-      if json_is_null(json["streamingData"]) then
-        print("No streaming data found in", html)
-        io.stdout:flush()
+      context["players_done"] = context["players_done"] + 1
+      if context["players_done"] > context["players"] then
+        error("Expected " .. tostring(context["players"]) .. " players but found " .. tostring(context["players_done"])  .. " players.")
       end
-      queue_streams(json["streamingData"]["adaptiveFormats"])
+      if not context["formats"] then
+        context["formats"] = {}
+      end
+      for _, d in pairs(json["streamingData"]["adaptiveFormats"]) do
+        table.insert(context["formats"], d)
+      end
+      if context["players"] == context["players_done"] then
+        queue_streams(context["formats"])
+        context["formats_queued"] = true
+      end
     end
     if string.match(url, "^https?://[^/]*youtube%.com/watch%?v=[^&]+$") then
       check("https://youtu.be/" .. item_value)
@@ -898,7 +917,6 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       end
       -- VIDEO INITIAL
       if item_type == "v1" or item_type == "v2" then
-        local get_type = "ios"
         local visitor_data = context["ytplayer"]["VISITOR_DATA"]
         if json_is_null(visitor_data) then
           if not json_is_null(context["ytplayer"]["INNERTUBE_CONTEXT"]["client"])
@@ -923,10 +941,44 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         else
           print("Found visitor data", visitor_data)
         end
-        if get_type == "mweb" then
-          local mweb_agent = "Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)"
-          local mweb_version = "2.20241202.07.00"
-          allowed_urls["https://www.youtube.com/youtubei/v1/player"] = true
+        local types_variables = {
+          ["ios"]={
+            ["context_client"]={
+               ["clientName"]="IOS",
+               ["clientVersion"]="20.10.4",
+               ["deviceMake"]="Apple",
+               ["deviceModel"]="iPhone16,2",
+               ["userAgent"]="com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+               ["osName"]="iPhone",
+               ["osVersion"]="18.3.2.22D82"
+            },
+            ["client_name"]="5"
+          },
+          ["mweb"]={
+            ["context_client"]={
+              ["clientName"]="MWEB",
+              ["clientVersion"]="2.20250311.03.00",
+              ["userAgent"]="Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)"
+            },
+            ["client_name"]="2"
+          },
+          ["tv"]={
+            ["context_client"]={
+              ["clientName"]="TVHTML5",
+              ["clientVersion"]="7.20250312.16.00",
+              ["userAgent"]="Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"
+            },
+            ["client_name"]="7"
+          }
+        }
+        allowed_urls["https://www.youtube.com/youtubei/v1/player"] = true
+        for _, use_type in pairs({"ios"}) do
+          if not context["players"] then
+            context["players"] = 0
+            context["players_done"] = 0
+            context["formats_queued"] = false
+          end
+          context["players"] = context["players"] + 1
           table.insert(
             urls,
             {
@@ -934,81 +986,35 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
               method="POST",
               body_data=cjson.encode({
                 ["context"]={
-                    ["client"]={
-                      ["clientName"]="MWEB",
-                      ["clientVersion"]=mweb_version,
-                      ["userAgent"]=mweb_agent,
+                  ["client"]=merge_tables(
+                    {
                       ["hl"]="en",
                       ["timeZone"]="UTC",
                       ["utcOffsetMinutes"]=0
-                    }
+                    },
+                    types_variables[use_type]["context_client"]
+                  )
                 },
                 ["videoId"]=item_value,
                 ["playbackContext"]={
-                    ["contentPlaybackContext"]={
-                        ["html5Preference"]="HTML5_PREF_WANTS",
-                        ["signatureTimestamp"]=context["ytplayer"]["STS"]
-                    }
+                  ["contentPlaybackContext"]={
+                      ["html5Preference"]="HTML5_PREF_WANTS",
+                      ["signatureTimestamp"]=context["ytplayer"]["STS"]
+                  }
                 },
                 ["contentCheckOk"]=true,
                 ["racyCheckOk"]=true
               }),
               headers={
-                ["X-YouTube-Client-Name"]="2",
-                ["X-YouTube-Client-Version"]=mweb_version,
+                ["X-YouTube-Client-Name"]=types_variables[use_type]["client_name"],
+                ["X-YouTube-Client-Version"]=types_variables[use_type]["context_client"]["clientVersion"],
                 ["Origin"]="https://www.youtube.com",
-                ["User-Agent"]=mweb_agent,
+                ["User-Agent"]=types_variables[use_type]["context_client"]["userAgent"],
                 ["content-type"]="application/json",
                 ["X-Goog-Visitor-Id"]=visitor_data
               }
             }
           )
-        elseif get_type == "ios" then
-          local ios_agent = "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)"
-          local ios_version = "19.45.4"
-          allowed_urls["https://www.youtube.com/youtubei/v1/player"] = true
-          table.insert(
-            urls,
-            {
-              url="https://www.youtube.com/youtubei/v1/player",
-              method="POST",
-              body_data=cjson.encode({
-                ["context"]={
-                    ["client"]={
-                      ["clientName"]="IOS",
-                      ["clientVersion"]=ios_version,
-                      ["deviceMake"]="Apple",
-                      ["deviceModel"]="iPhone16,2",
-                      ["userAgent"]=ios_agent,
-                      ["osName"]="iPhone",
-                      ["osVersion"]="18.1.0.22B83",
-                      ["hl"]="en",
-                      ["timeZone"]="UTC",
-                      ["utcOffsetMinutes"]=0
-                    }
-                },
-                ["videoId"]=item_value,
-                ["playbackContext"]={
-                    ["contentPlaybackContext"]={
-                        ["html5Preference"]="HTML5_PREF_WANTS",
-                        ["signatureTimestamp"]=context["ytplayer"]["STS"]
-                    }
-                },
-                ["contentCheckOk"]=true,
-                ["racyCheckOk"]=true
-              }),
-              headers={
-                ["X-YouTube-Client-Name"]="5",
-                ["X-YouTube-Client-Version"]=ios_version,
-                ["Origin"]="https://www.youtube.com",
-                ["User-Agent"]=iod_agent,
-                ["content-type"]="application/json",
-                ["X-Goog-Visitor-Id"]=visitor_data
-              }
-            }
-          )
-        else
-          error("Should not reach this.")
         end
         -- old, directly from data in HTML
         -- queue_streams(context["initial_player"])
@@ -1389,6 +1395,9 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
 end
 
 wget.callbacks.before_exit = function(exit_status, exit_status_string)
+  if not context["formats_queued"] then
+    error("Formats were not queued yet.")
+  end
   if killgrab then
     return wget.exits.IO_FAIL
   end

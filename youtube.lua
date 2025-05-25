@@ -714,7 +714,10 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       streams["audio " .. audio_name] = d
     end
 
+    local urls_to_queue = {["video"]={},["audio"]={}}
+
     for stream_type, stream_data in pairs(streams) do
+      local stream_type_base = string.match(stream_type, "^([a-z]+)")
       if stream_data["url"] == nil then
         print("found encrypted signature")
         local signature_cipher = stream_data["cipher"]
@@ -737,7 +740,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         newurl = string.gsub(newurl, "([%?&]n=)[^&]+", "%1" .. string.gsub(new_n, "%-", "%%%-"))
       end
       allowed_urls[newurl] = true
-      check(newurl)
+      urls_to_queue[stream_type_base][newurl] = true
       if not string.match(newurl, "&video_id=") then
         newurl = newurl .. "&video_id=" .. item_value
       end
@@ -749,6 +752,13 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         newurl = newurl .. "&stream_name=" .. urlparse.escape(name) .. "&stream_is_default=" .. tostring(current_audio_default==name)
       end
       allowed_urls[newurl] = true
+      urls_to_queue[stream_type_base][newurl] = true
+    end
+
+    for newurl, _ in pairs(urls_to_queue["audio"]) do
+      check(newurl)
+    end
+    for newurl, _ in pairs(urls_to_queue["video"]) do
       check(newurl)
     end
   end

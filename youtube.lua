@@ -277,7 +277,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
   local function execute_js(code, arg)
     local filename = item_dir .. "/temp_func.js"
     local file = io.open(filename, "w")
-    file:write("func" .. code .. 'console.log(func("' .. arg .. '"));')
+    file:write(code .. 'console.log(func("' .. arg .. '"));')
     file:close()
     local command = "node " .. filename
     local stream = io.popen(command)
@@ -306,9 +306,20 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       f_code = string.match(code, f_name .. "(%s*=%s*function%s*%(a%)%s*{.-return%s+[0-9a-zA-Z%.]+%(\"\"%)%s*};)")
     end]]
     --local f_code = string.match(string.reverse(code), '(;}%)""%(nioj%.[0-9a-zA-Z$]+%s+nruter%s*}%s*[0-9a-zA-Z$]+%s*%+%s*"[^"]+_tpecxe_decnahne".-{%s*%)%s*a%(noitcnuf%s*=%s*)[0-9a-zA-Z$]+')
-    local f_code = string.match(string.reverse(code), '(;}%)""%(nioj%.[0-9a-zA-Z$]+%s+nruter%s*}%s*[0-9a-zA-Z$]+%s*%+%s*"_8w_[^"]+".-{%s*%)%s*[a-zA-Z]%(noitcnuf%s*=%s*)[0-9a-zA-Z$]+')
+    --local f_code = string.match(string.reverse(code), '(;}%)""%(nioj%.[0-9a-zA-Z$]+%s+nruter%s*}%s*[0-9a-zA-Z$]+%s*%+%s*"_8w_[^"]+".-{%s*%)%s*[a-zA-Z]%(noitcnuf%s*=%s*)[0-9a-zA-Z$]+')
+    local f_code = string.match(string.reverse(code), "\n(;}%)%][0-9]+%[[a-zA-Z]%(%]%][0-9]+%[[a-zA-Z]%[[a-zA-Z] nruter}.-rav{%)[a-zA-Z]%(noitcnuf=)[0-9a-zA-Z]+\n")
     f_code = string.reverse(f_code)
-    f_code = string.gsub(f_code, 'if%(typeof [0-9a-zA-Z]+==="undefined"%)return [0-9a-zA-Z]+;', "")
+    local f_code_strings = string.match(code, "'use strict';(var Y='.-'%.split%(\";\"%))")
+    f_code = f_code_strings .. "; func " .. f_code
+    --f_code = string.gsub(f_code, 'if%(typeof [0-9a-zA-Z]+==="undefined"%)return [0-9a-zA-Z]+;', "")
+    local count = 0
+    for s in string.gmatch(string.match(f_code_strings, "'(.-)'%.split") .. ";", "([^;]*;)") do
+      if s == "undefined;" then
+        break
+      end
+      count = count + 1
+    end
+    f_code = string.gsub(f_code, "if%(typeof [0-9a-zA-Z]+===" .. string.match(f_code_strings, "var ([0-9a-zA-Z]+)") .. "%[" .. tostring(count) .. "%]%)return [0-9a-zA-Z]+;", "")
     local new_n = execute_js(f_code, n)
     print("decrypted n " .. n .. " to " .. new_n)
     assert(n ~= new_n)
@@ -617,7 +628,11 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         local height = format["height"]
         local fps = format["fps"]
         local codec = string.match(mime, "codecs=\"([0-9a-zA-Z]+)")
-        print("Checking video with fps " .. fps .. ", height " .. height .. ", codec " .. codec)
+        local drm = false
+        if format["drmFamilies"] then
+          drm = true
+        end
+        print("Checking video with fps " .. fps .. ", height " .. height .. ", codec " .. codec .. ", DRM " .. tostring(drm))
         local diff = math.abs(height-480)
         if not current_video_url
           or (item_type == "v1" and diff < current_diff and not context["180"] and not context["360"])
@@ -645,6 +660,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         local codec = string.match(mime, "codecs=\"([0-9a-zA-Z]+)")
         local drc = false
         local name = ""
+        local drm = false
         local quality = string.match(string.lower(format["audioQuality"]), "([^_]+)$")
         if format["isDrc"] then
           drc = true
@@ -662,16 +678,22 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         if string.len(name_string) > 0 then
           name_string = ' \'' .. name_string .. '\''
         end
-        print("Checking audio" .. name .. " with bitrate " .. bitrate .. ", quality " .. quality .. ", DRC " .. tostring(drc) .. ", codec " .. codec)
-        if not current_audio_url[name]
-          or (not drc and current_audio_url[name]["drc"])
-          or (
-            (not drc or current_audio_url[name]["drc"])
-            and (
-              audio_quality[quality] > audio_quality[current_audio_url[name]["quality"]]
-              or (
-                audio_quality[quality] >= audio_quality[current_audio_url[name]["quality"]]
-                and (codec == "opus" and current_audio_url[name]["codec"] ~= "opus")
+        if format["drmFamilies"] then
+          drm = true
+        end
+        print("Checking audio" .. name .. " with bitrate " .. bitrate .. ", quality " .. quality .. ", DRC " .. tostring(drc) .. ", codec " .. codec .. ", DRM " .. tostring(drm))
+        if not drm
+          and (
+            not current_audio_url[name]
+            or (not drc and current_audio_url[name]["drc"])
+            or (
+              (not drc or current_audio_url[name]["drc"])
+              and (
+                audio_quality[quality] > audio_quality[current_audio_url[name]["quality"]]
+                or (
+                  audio_quality[quality] >= audio_quality[current_audio_url[name]["quality"]]
+                  and (codec == "opus" and current_audio_url[name]["codec"] ~= "opus")
+                )
               )
             )
           ) then
@@ -681,7 +703,8 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
             ["bitrate"] = bitrate,
             ["drc"] = drc,
             ["codec"] = codec,
-            ["quality"] = quality
+            ["quality"] = quality,
+            ["drm"] = drm
           }
         end
       else
@@ -689,13 +712,23 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       end
     end
 
+    if not current_video_url then
+      error("Could not pick video URL.")
+    end
+
     print("Chosen video with fps " .. current_fps .. ", height " .. current_height .. ", codec " .. current_video_codec)
+    local chosen_audio = false
     for audio_name, audio_data in pairs(current_audio_url) do
       local name_string = audio_name
       if string.len(name_string) > 0 then
         name_string = ' \'' .. name_string .. '\''
       end
+      chosen_audio = true
       print("Chosen audio" .. name_string .. " with bitrate " .. audio_data["bitrate"] .. ", quality " .. audio_data["quality"] .. ", DRC " .. tostring(audio_data["drc"]) .. ", codec " .. audio_data["codec"])
+    end
+
+    if not chosen_audio then
+      error("Could not pick audio URL.")
     end
 
     local player_js_url = urlparse.absolute("https://www.youtube.com/", context["ytplayer"]["PLAYER_JS_URL"])
@@ -982,7 +1015,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           }
         }
         allowed_urls["https://www.youtube.com/youtubei/v1/player"] = true
-        for _, use_type in pairs({"ios"}) do
+        for _, use_type in pairs({"ios", "tv"}) do
           if not context["players"] then
             context["players"] = 0
             context["players_done"] = 0

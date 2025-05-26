@@ -772,14 +772,16 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         end
         newurl = string.gsub(newurl, "([%?&]n=)[^&]+", "%1" .. string.gsub(new_n, "%-", "%%%-"))
       end
-      allowed_urls[newurl] = true
-      urls_to_queue[stream_type_base][newurl] = true
+      --allowed_urls[newurl] = true
+      --urls_to_queue[stream_type_base][newurl] = true
       if not string.match(newurl, "&video_id=") then
         newurl = newurl .. "&video_id=" .. item_value
       end
       local stream_type_2 = string.match(stream_type, "^([a-z]+)")
-      newurl = newurl .. "&stream_type=" .. stream_type_2
-      if stream_type_2 == "audio" and audio_stream_count > 1 then
+      if string.match(newurl, "[%?&]mime=([a-z]+)") ~= stream_type_2 then
+        newurl = newurl .. "&stream_type=" .. stream_type_base
+      end
+      if stream_type_base == "audio" and audio_stream_count > 1 then
         local name = string.match(stream_type, "^[a-z]+ (.+)$")
         assert(current_audio_default ~= nil)
         newurl = newurl .. "&stream_name=" .. urlparse.escape(name) .. "&stream_is_default=" .. tostring(current_audio_default==name)

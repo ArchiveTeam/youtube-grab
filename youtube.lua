@@ -634,17 +634,20 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         end
         print("Checking video with fps " .. fps .. ", height " .. height .. ", codec " .. codec .. ", DRM " .. tostring(drm))
         local diff = math.abs(height-480)
-        if not current_video_url
-          or (item_type == "v1" and diff < current_diff and not context["180"] and not context["360"])
-          or (
-            (context["180"] or context["360"] or item_type == "v2")
-            and (
-              height > current_height
-              or (
-                height >= current_height
-                and (
-                  fps > current_fps
-                  or (current_video_codec ~= "vp9" and codec == "vp9")
+        if not drm
+          and (
+            not current_video_url
+            or (item_type == "v1" and diff < current_diff and not context["180"] and not context["360"])
+            or (
+              (context["180"] or context["360"] or item_type == "v2")
+              and (
+                height > current_height
+                or (
+                  height >= current_height
+                  and (
+                    fps > current_fps
+                    or (current_video_codec ~= "vp9" and codec == "vp9")
+                  )
                 )
               )
             )

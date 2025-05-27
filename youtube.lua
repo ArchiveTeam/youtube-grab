@@ -846,6 +846,10 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       if not context["formats"] then
         context["formats"] = {}
       end
+      if not json["streamingData"]["adaptiveFormats"]
+        or json["streamingData"]["adaptiveFormats"] == cjson.null then
+        json["streamingData"]["adaptiveFormats"] = {}
+      end
       for _, d in pairs(json["streamingData"]["adaptiveFormats"]) do
         table.insert(context["formats"], d)
       end

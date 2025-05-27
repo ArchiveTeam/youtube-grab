@@ -309,11 +309,11 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     --local f_code = string.match(string.reverse(code), '(;}%)""%(nioj%.[0-9a-zA-Z$]+%s+nruter%s*}%s*[0-9a-zA-Z$]+%s*%+%s*"_8w_[^"]+".-{%s*%)%s*[a-zA-Z]%(noitcnuf%s*=%s*)[0-9a-zA-Z$]+')
     local f_code = string.match(string.reverse(code), "\n(;}%)%][0-9]+%[[a-zA-Z]%(%]%][0-9]+%[[a-zA-Z]%[[a-zA-Z] nruter}.-rav{%)[a-zA-Z]%(noitcnuf=)[0-9a-zA-Z]+\n")
     f_code = string.reverse(f_code)
-    local f_code_strings = string.match(code, "'use strict';(var Y='.-'%.split%(\";\"%))")
+    local f_code_strings = string.match(code, "[\"']use strict[\"'];(var [0-9a-zA-Z]+=[\"'].-[\"']%.split%(\";\"%))")
     f_code = f_code_strings .. "; func " .. f_code
     --f_code = string.gsub(f_code, 'if%(typeof [0-9a-zA-Z]+==="undefined"%)return [0-9a-zA-Z]+;', "")
     local count = 0
-    for s in string.gmatch(string.match(f_code_strings, "'(.-)'%.split") .. ";", "([^;]*;)") do
+    for s in string.gmatch(string.match(f_code_strings, "[\"'](.+)[\"']%.split") .. ";", "([^;]*;)") do
       if s == "undefined;" then
         break
       end
@@ -321,7 +321,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end
     f_code = string.gsub(f_code, "if%(typeof [0-9a-zA-Z]+===" .. string.match(f_code_strings, "var ([0-9a-zA-Z]+)") .. "%[" .. tostring(count) .. "%]%)return [0-9a-zA-Z]+;", "")
     local new_n = execute_js(f_code, n)
-    print("decrypted n " .. n .. " to " .. new_n)
+    print("Decrypted n " .. n .. " to " .. new_n)
     assert(n ~= new_n)
     return new_n
   end
@@ -331,17 +331,22 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     for _, pattern in pairs({
       "m=([0-9a-zA-Z%$]+)%(decodeURIComponent%(h%.s%)%)",
       "%(c=([0-9a-zA-Z%$]+)%(decodeURIComponent%(c%)%)",
-      "[A-Z]&&%([A-Z]=([a-zA-Z_]+)%(decodeURIComponent%([A-Z]%)%)"
+      "[A-Z]&&%([A-Z]=([a-zA-Z_]+)%(decodeURIComponent%([A-Z]%)%)",
+      "[a-zA-Z]+=([0-9a-zA-Z%$]+)%(decodeURIComponent%([0-9a-zA-Z%.]+%)%)"
     }) do
       f_name = string.match(code, pattern)
       if f_name then
         break
       end
     end
+    local f_code_strings = string.match(code, "[\"']use strict[\"'];(var [0-9a-zA-Z]+=[\"'].-[\"']%.split%(\";\"%))")
     local f_code = string.match(code, f_name .. "(=function%([^%)]+%){[^}]+};)")
-    local varname = string.match(f_code, ";([a-zA-Z_]+)%.[a-zA-Z_]+%([a-zA-Z],[0-9]+%);")
+    local varname = string.match(f_code, ";([0-9a-zA-Z]+)%[" .. string.match(f_code_strings, "var ([0-9a-zA-Z]+)") .. "%[[0-9]+%]%]%([0-9a-zA-Z]+,[0-9]+%)")
     local f_var = string.match(code, "(var " .. varname .. "={[a-zA-Z_]+:function.-}};)")
-    return execute_js(f_code .. f_var, s)
+    local new_s = execute_js(f_code_strings .. ";" .. f_var .. "func" .. f_code, s)
+    print("Decrypted sig " .. s .. " to " .. new_s)
+    assert(s ~= new_s)
+    return new_s
   end
 
   --[[local function interpret_javascript(key, code, f_name)
@@ -735,9 +740,10 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end
 
     local player_js_url = urlparse.absolute("https://www.youtube.com/", context["ytplayer"]["PLAYER_JS_URL"])
-    print(" - using PLAYER_JS_URL", player_js_url)
+    print("Using player js url " .. player_js_url)
     local body, _, _, _ = https.request(player_js_url)
     if math.random() < 0.05 then
+      allowed_urls[player_js_url] = true
       check(player_js_url)
     end
 
@@ -755,7 +761,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     for stream_type, stream_data in pairs(streams) do
       local stream_type_base = string.match(stream_type, "^([a-z]+)")
       if stream_data["url"] == nil then
-        print("found encrypted signature")
+        --print("found encrypted signature")
         local signature_cipher = stream_data["cipher"]
         --print(" - signature cipher", signature_cipher)
         local s = urlparse.unescape(string.match(signature_cipher, "^s=([^&]+)"))
@@ -772,6 +778,8 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         if not new_n then
           new_n = decrypt_n(n, body)
           decrypted_ns[n] = new_n
+        else
+          print("Found cached decrypted n " .. n .. " to " .. new_n)
         end
         newurl = string.gsub(newurl, "([%?&]n=)[^&]+", "%1" .. string.gsub(new_n, "%-", "%%%-"))
       end

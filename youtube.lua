@@ -307,9 +307,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end]]
     --local f_code = string.match(string.reverse(code), '(;}%)""%(nioj%.[0-9a-zA-Z$]+%s+nruter%s*}%s*[0-9a-zA-Z$]+%s*%+%s*"[^"]+_tpecxe_decnahne".-{%s*%)%s*a%(noitcnuf%s*=%s*)[0-9a-zA-Z$]+')
     --local f_code = string.match(string.reverse(code), '(;}%)""%(nioj%.[0-9a-zA-Z$]+%s+nruter%s*}%s*[0-9a-zA-Z$]+%s*%+%s*"_8w_[^"]+".-{%s*%)%s*[a-zA-Z]%(noitcnuf%s*=%s*)[0-9a-zA-Z$]+')
-    local f_code = string.match(string.reverse(code), "\n(;}%)%][0-9]+%[[a-zA-Z]%(%]%][0-9]+%[[a-zA-Z]%[[a-zA-Z] nruter}.-rav{%)[a-zA-Z]%(noitcnuf=)[0-9a-zA-Z]+\n")
+    local f_code = string.match(string.reverse(code), "\n(;}%)%][0-9]+%[[a-zA-Z]%(%]%][0-9]+%[[a-zA-Z]%[[a-zA-Z] nruter}.-rav{%)[a-zA-Z]%(noitcnuf=)[0-9a-zA-Z%$]+\n")
     f_code = string.reverse(f_code)
-    local f_code_strings = string.match(code, "[\"']use strict[\"'];(var [0-9a-zA-Z]+=[\"'].-[\"']%.split%(\";\"%))")
+    local f_code_strings = string.match(code, "[\"']use strict[\"'];(var [0-9a-zA-Z%$]+=[\"'].-[\"']%.split%(\";\"%))")
     f_code = f_code_strings .. "; func " .. f_code
     --f_code = string.gsub(f_code, 'if%(typeof [0-9a-zA-Z]+==="undefined"%)return [0-9a-zA-Z]+;', "")
     local count = 0
@@ -319,7 +319,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       end
       count = count + 1
     end
-    f_code = string.gsub(f_code, "if%(typeof [0-9a-zA-Z]+===" .. string.match(f_code_strings, "var ([0-9a-zA-Z]+)") .. "%[" .. tostring(count) .. "%]%)return [0-9a-zA-Z]+;", "")
+    f_code = string.gsub(f_code, "if%(typeof [0-9a-zA-Z%$]+===" .. string.match(f_code_strings, "var ([0-9a-zA-Z%$]+)") .. "%[" .. tostring(count) .. "%]%)return [0-9a-zA-Z%$]+;", "")
     local new_n = execute_js(f_code, n)
     print("Decrypted n " .. n .. " to " .. new_n)
     assert(n ~= new_n)
@@ -331,17 +331,17 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     for _, pattern in pairs({
       "m=([0-9a-zA-Z%$]+)%(decodeURIComponent%(h%.s%)%)",
       "%(c=([0-9a-zA-Z%$]+)%(decodeURIComponent%(c%)%)",
-      "[A-Z]&&%([A-Z]=([a-zA-Z_]+)%(decodeURIComponent%([A-Z]%)%)",
-      "[a-zA-Z]+=([0-9a-zA-Z%$]+)%(decodeURIComponent%([0-9a-zA-Z%.]+%)%)"
+      "[A-Z]&&%([A-Z]=([0-9a-zA-Z_%$]+)%(decodeURIComponent%([A-Z]%)%)",
+      "[a-zA-Z]+=([0-9a-zA-Z%$]+)%(decodeURIComponent%([0-9a-zA-Z%.%$]+%)%)"
     }) do
       f_name = string.match(code, pattern)
       if f_name then
         break
       end
     end
-    local f_code_strings = string.match(code, "[\"']use strict[\"'];(var [0-9a-zA-Z]+=[\"'].-[\"']%.split%(\";\"%))")
+    local f_code_strings = string.match(code, "[\"']use strict[\"'];(var [0-9a-zA-Z%$]+=[\"'].-[\"']%.split%(\";\"%))")
     local f_code = string.match(code, f_name .. "(=function%([^%)]+%){[^}]+};)")
-    local varname = string.match(f_code, ";([0-9a-zA-Z]+)%[" .. string.match(f_code_strings, "var ([0-9a-zA-Z]+)") .. "%[[0-9]+%]%]%([0-9a-zA-Z]+,[0-9]+%)")
+    local varname = string.match(f_code, ";([0-9a-zA-Z%$]+)%[" .. string.match(f_code_strings, "var ([0-9a-zA-Z%$]+)") .. "%[[0-9]+%]%]%([0-9a-zA-Z%$]+,[0-9]+%)")
     local f_var = string.match(code, "(var " .. varname .. "={[a-zA-Z_]+:function.-}};)")
     local new_s = execute_js(f_code_strings .. ";" .. f_var .. "func" .. f_code, s)
     print("Decrypted sig " .. s .. " to " .. new_s)

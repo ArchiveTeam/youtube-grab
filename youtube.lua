@@ -785,10 +785,10 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
 
     local urls_to_queue = {["video"]={},["audio"]={}}
 
-    local function report_js()
+    local function report_js(name)
       http.request(
-        "https://legacy-api.arpa.li/backfeed/legacy/youtube-problems-iqdsa9i1u5b0z6ek",
-        player_js_url .. "\0"
+        "https://legacy-api.arpa.li/backfeed/legacy/youtube-problems-iqdsa9i1u5b0z6ek?skipbloom=1",
+        name .. ":" .. player_js_url .. "\0"
       )
     end
 
@@ -803,7 +803,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         local url_ = urlparse.unescape(string.match(signature_cipher, "&url=([^&]+)"))
         local s_decrypted = decrypt_sig(s, body)
         if not s_decrypted then
-          report_js()
+          report_js("sig")
           error("Could not interpret javascript.")
         end
         stream_data["url"] = url_ .. "&" .. sp .. "=" .. s_decrypted
@@ -816,7 +816,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         if not new_n then
           new_n = decrypt_n(n, body)
           if not new_n then
-            report_js()
+            report_js("n")
             error("Could not interpret javascript.")
           end
           decrypted_ns[n] = new_n

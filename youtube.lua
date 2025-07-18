@@ -365,7 +365,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       return nil
     end
     local varname = string.match(f_code, ";([0-9a-zA-Z%$_]+)%[" .. string.match(f_code_strings, "var ([0-9a-zA-Z%$_]+)") .. "%[[0-9]+%]%]%([0-9a-zA-Z%$_]+,[0-9]+%)")
-    local f_var = string.match(code, "(var " .. varname .. "={[a-zA-Z_]+:function.-}};)")
+    local f_var = string.match(code, "(var " .. varname .. "={[0-9a-zA-Z%$_]+:function.-}};)")
     if not f_var then
       return nil
     end
@@ -1346,6 +1346,39 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     for newurl in string.gmatch(html, "%(([^%)]+)%)") do
       checknewurl(newurl)
     end]]
+  end
+
+  for _, newurl in pairs(urls) do
+    if newurl["body_data"] then
+      local body_data = cjson.decode(newurl["body_data"])
+      if body_data["videoId"] then
+        local key = nil
+        for k, v in pairs(context["ytplayer"]["INNERTUBE_CONTEXT"]["adSignalsInfo"]) do
+          if key then
+            error("Already found a key.")
+          end
+          key = k
+        end
+        body_data[key] = (function(chars)
+          local base = 97
+          local s = ""
+          for i, c in pairs(chars) do
+            if i > 1 then
+              s = s .. tostring(i)
+            end
+            for j = 1 , #chars do
+              if j > 1 then
+                s = s .. string.char(base+c)
+              end
+              s = s .. string.char(base+j-1)
+            end
+          end
+          s = tostring(string.len(s)+1) .. s
+          return string.upper(s)
+        end)({4, 12})
+        newurl["body_data"] = cjson.encode(body_data)
+      end
+    end
   end
 
   return urls

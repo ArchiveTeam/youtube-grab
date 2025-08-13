@@ -917,9 +917,21 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       end
       local playability_status = context["initial_player"]["playabilityStatus"]
       if playability_status["status"] ~= "OK" then
+        local reason = playability_status["reason"] or playability_status["messages"]
+        if type(reason) == "table" then
+          local temp = ""
+          for _, s in pairs(reason) do
+            if string.len(temp) > 0 then
+              temp = temp .. " "
+            end
+            temp = temp .. s
+          end
+          reason = temp
+        end
+        print("Video is not playable: " .. reason)
         if playability_status["status"] == "LOGIN_REQUIRED"
-          and string.match(playability_status["reason"], " bot")
-          and string.match(playability_status["reason"], "[sS]ign in") then
+          and string.match(reason, " bot")
+          and string.match(reason, "[sS]ign in") then
           banned()
         else
           io.stdout:write("You are unable to play this video.\n")

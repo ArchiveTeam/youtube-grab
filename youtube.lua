@@ -708,7 +708,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           name = format["audioTrack"]["displayName"]
           if format["audioTrack"]["audioIsDefault"] then
             if current_audio_default ~= nil and current_audio_default ~= name then
-              error("More than two default audio streams?")
+              error("More than one default audio stream?")
             end
             current_audio_default = name
           end
@@ -720,7 +720,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         if format["drmFamilies"] then
           drm = true
         end
-        print("Checking audio" .. name .. " with bitrate " .. bitrate .. ", quality " .. quality .. ", DRC " .. tostring(drc) .. ", codec " .. codec .. ", DRM " .. tostring(drm))
+        print("Checking audio " .. name .. " with bitrate " .. bitrate .. ", quality " .. quality .. ", DRC " .. tostring(drc) .. ", codec " .. codec .. ", DRM " .. tostring(drm))
         if not drm
           and (
             not current_audio_url[name]
@@ -839,9 +839,12 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         newurl = newurl .. "&stream_type=" .. stream_type_base
       end
       if stream_type_base == "audio" and audio_stream_count > 1 then
-        local name = string.match(stream_type, "^[a-z]+ (.+)$")
+        local name = string.match(stream_type, "^[a-z]+ (.*)$")
         assert(current_audio_default ~= nil)
-        newurl = newurl .. "&stream_name=" .. urlparse.escape(name) .. "&stream_is_default=" .. tostring(current_audio_default==name)
+        if string.len(name) > 0 then
+          newurl = newurl .. "&stream_name=" .. urlparse.escape(name)
+        end
+        newurl = newurl .. "&stream_is_default=" .. tostring(current_audio_default==name)
       end
       allowed_urls[newurl] = true
       urls_to_queue[stream_type_base][newurl] = true

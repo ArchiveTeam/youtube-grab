@@ -720,7 +720,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         if format["drmFamilies"] then
           drm = true
         end
-        print("Checking audio " .. name .. " with bitrate " .. bitrate .. ", quality " .. quality .. ", DRC " .. tostring(drc) .. ", codec " .. codec .. ", DRM " .. tostring(drm))
+        print("Checking audio" .. name_string .. " with bitrate " .. bitrate .. ", quality " .. quality .. ", DRC " .. tostring(drc) .. ", codec " .. codec .. ", DRM " .. tostring(drm))
         if not drm
           and (
             not current_audio_url[name]

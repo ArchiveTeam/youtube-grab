@@ -1363,7 +1363,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end]]
   end
 
-  --[[for _, newurl in pairs(urls) do
+  for _, newurl in pairs(urls) do
     if newurl["body_data"] then
       local body_data = cjson.decode(newurl["body_data"])
       if body_data["videoId"] then
@@ -1384,8 +1384,10 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
             for j = 1 , #chars do
               if j > 1 then
                 s = s .. string.char(base+c)
+                s = s .. string.char(base+i-1)
+              else
+                s = s .. string.char(base+j-1)
               end
-              s = s .. string.char(base+j-1)
             end
           end
           s = tostring(string.len(s)+1) .. s
@@ -1394,7 +1396,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         newurl["body_data"] = cjson.encode(body_data)
       end
     end
-  end]]
+  end
 
   return urls
 end

@@ -1433,6 +1433,10 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
       banned()
       return wget.actions.ABORT
     end
+    if string.match(url["url"], "^https?://youtu%.be/")
+      and string.match(newloc, "^https?://[^/]+/watch%?v=") then
+      return wget.actions.EXIT
+    end
     if downloaded[newloc] or addedtolist[newloc]
       or not allowed(newloc, url["url"]) then
       tries = 0

@@ -15,6 +15,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 import string
 
@@ -69,7 +70,7 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20250821.01'
+VERSION = '20250829.01'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0'
 TRACKER_ID = 'youtube'
 TRACKER_HOST = 'legacy-api.arpa.li'
@@ -175,6 +176,66 @@ class SetBadUrls(SimpleTask):
                 items_lower.pop(index)
         item['item_name'] = '\0'.join(items)
 
+def get_concurrency():
+    if '--concurrent' in sys.argv:
+        concurrency = int(sys.argv[sys.argv.index('--concurrent')+1])
+    else:
+        concurrency = os.getenv('CONCURRENT_ITEMS')
+        if concurrency is None:
+            concurrency = 2
+    return concurrency
+
+
+class SetCookies(SimpleTask):
+    LOCK = threading.Lock()
+    COOKIES = {'index': 0, 'cookies': []}
+    CONCURRENCY = None
+
+    def __init__(self):
+        SimpleTask.__init__(self, 'SetCookies')
+
+    def process(self, item):
+        item['cookies_dir'] = os.path.join(item['data_dir'].rsplit('/', 1)[0], 'cookies')
+        if not os.path.isdir(item['cookies_dir']):
+            os.makedirs(item['cookies_dir'])
+        with self.LOCK:
+            item['cookie_file'] = os.path.join(item['cookies_dir'], self.get_cookie())
+            if not os.path.isfile(item['cookie_file']):
+                with open(item['cookie_file'], 'w') as f:
+                    f.write('.youtube.com\tTRUE\t/\tTRUE\t2147483647\tPREF\ttz=Etc.UTC\n')
+                    f.write('.youtube.com\tTRUE\t/\tTRUE\t2147483647\tCONSENT\tYES+\n')
+
+    @classmethod
+    def _add_cookie(cls, index):
+        new = {
+            'file': ''.join(random.choices(string.ascii_letters, k=8)) + '.txt',
+            'count': 0
+        }
+        if index == -1:
+            cls.COOKIES['cookies'].append(new)
+        else:
+            cls.COOKIES['cookies'][index] = new
+        return new
+
+    @classmethod
+    def get_cookie(cls):
+        if len(cls.COOKIES['cookies']) < cls.concurrency():
+            cls._add_cookie(-1)
+        index = cls.COOKIES['index'] % cls.CONCURRENCY
+        result = cls.COOKIES['cookies'][index]
+        if result['count'] > 250:
+            cls._add_cookie(index)
+        result = cls.COOKIES['cookies'][index]
+        cls.COOKIES['index'] += 1
+        result['count'] += 1
+        return result['file']
+
+    @classmethod
+    def concurrency(cls):
+        if cls.CONCURRENCY is None:
+            cls.CONCURRENCY = get_concurrency()
+        return cls.CONCURRENCY
+
 
 class MaybeUploadWithTracker(UploadWithTracker):
     def enqueue(self, item):
@@ -243,7 +304,10 @@ class WgetArgs(object):
             '--warc-header', 'x-wget-at-project-name: ' + TRACKER_ID,
             '--warc-dedup-url-agnostic',
             #'--warc-tempdir', ItemInterpolation('%(item_dir)s'),
-            '--header', 'Accept-Language: en-US;q=0.9, en;q=0.8'
+            '--header', 'Accept-Language: en-US;q=0.9, en;q=0.8',
+            '--load-cookies', ItemValue('cookie_file'),
+            '--save-cookies', ItemValue('cookie_file'),
+            '--keep-session-cookies'
         ]
 
         if 'PREFER_IPV4' in os.environ:
@@ -260,19 +324,6 @@ class WgetArgs(object):
             if item_type in ('v', 'v1', 'v2'):
                 wget_args.extend(['--warc-header', 'youtube-video: '+item_value])
                 wget_args.append('https://www.youtube.com/watch?v='+item_value)
-                wget_args.extend(['--header', 'Cookie: '+'; '.join(
-                    '{}={}'.format(k, v)
-                    for k, v in {
-                        **requests.get(
-                            wget_args[-1],
-                            headers={
-                                'User-Agent': USER_AGENT,
-                            },
-                            cookies=COOKIES
-                        ).cookies.get_dict(domain='.youtube.com'),
-                        **COOKIES
-                    }.items()
-                )])
                 if item_type == 'v1':
                     v_items[0].append(item_value)
                 elif item_type == 'v2':
@@ -313,6 +364,7 @@ pipeline = Pipeline(
         .format(TRACKER_HOST, TRACKER_ID, MULTI_ITEM_SIZE),
         downloader, VERSION),
     PrepareDirectories(warc_prefix='youtube'),
+    SetCookies(),
     WgetDownload(
         WgetArgs(),
         max_tries=1,

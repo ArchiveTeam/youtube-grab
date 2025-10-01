@@ -740,9 +740,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         newurl = newurl .. "&video_id=" .. item_value
       end
       local stream_type_2 = string.match(stream_type, "^([a-z]+)")
-      if string.match(newurl, "[%?&]mime=([a-z]+)") ~= stream_type_2 then
+      --if string.match(newurl, "[%?&]mime=([a-z]+)") ~= stream_type_base then
         newurl = newurl .. "&stream_type=" .. stream_type_base
-      end
+      --end
       if stream_type_base == "audio" and audio_stream_count > 1 then
         local name = string.match(stream_type, "^[a-z]+ (.*)$")
         assert(current_audio_default ~= nil)

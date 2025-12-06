@@ -555,6 +555,15 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end
   end
 
+  local function normalize_codec(s)
+    local rest, number = string.match(s, "^(.-)([0-9]+)$")
+    if rest and number then
+      number = tostring(tonumber(number))
+      s = rest .. number
+    end
+    return s
+  end
+
   local function queue_streams(adaptive_formats)
     local current_diff = nil
     local current_height = nil
@@ -568,7 +577,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       if string.match(mime, "^video/") then
         local height = format["height"]
         local fps = format["fps"]
-        local codec = string.match(mime, "codecs=\"([0-9a-zA-Z]+)")
+        local codec = normalize_codec(string.match(mime, "codecs=\"([0-9a-zA-Z]+)"))
         local drm = false
         if format["drmFamilies"] then
           drm = true
@@ -601,7 +610,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         end
       elseif string.match(mime, "^audio/") then
         local bitrate = format["bitrate"]
-        local codec = string.match(mime, "codecs=\"([0-9a-zA-Z]+)")
+        local codec = normalize_codec(string.match(mime, "codecs=\"([0-9a-zA-Z]+)"))
         local drc = false
         local name = ""
         local drm = false

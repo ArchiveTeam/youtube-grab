@@ -713,9 +713,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     for stream_type, stream_data in pairs(streams) do
       local stream_type_base = string.match(stream_type, "^([a-z]+)")
       if stream_data["url"] == nil then
-        --print("found encrypted signature")
+        print("found encrypted signature")
         local signature_cipher = stream_data["cipher"]
-        --print(" - signature cipher", signature_cipher)
+        print(" - signature cipher", signature_cipher)
         local s = urlparse.unescape(string.match(signature_cipher, "^s=([^&]+)"))
         local sp = urlparse.unescape(string.match(signature_cipher, "&sp=([^&]+)"))
         local url_ = urlparse.unescape(string.match(signature_cipher, "&url=([^&]+)"))
@@ -1177,7 +1177,8 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
                   --[[if not d["selected"] and d["title"] ~= "Newest first" then
                     error("Unknown ordering '" .. d["title"] .. "'.")
                   end]]
-                  if d["title"] == "Newest first" then
+                  if d["title"] == "Newest first"
+                    or d["title"] == "Newest" then
                     if d["selected"] then
                       sorted_new[pretty_print] = true
                     else

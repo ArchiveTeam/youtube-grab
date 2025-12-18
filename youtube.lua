@@ -1200,10 +1200,18 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
             if comment_thread_renderer then
               local replies = comment_thread_renderer["replies"]
               if replies then
-                print("getting replies")
-                replies = replies["commentRepliesRenderer"]["contents"]
-                check_list_length(replies)
-                queue_continuation_new(replies[1]["continuationItemRenderer"], pretty_print)
+                for _, k in pairs({"contents", "subThreads"}) do
+                  threads = replies["commentRepliesRenderer"][k]
+                  if threads then
+                    --check_list_length(threads)
+                    for _, thread in pairs(threads) do
+                      if thread["continuationItemRenderer"] then
+                        print("getting replies from " .. k)
+                        queue_continuation_new(thread["continuationItemRenderer"], pretty_print)
+                      end
+                    end
+                  end
+                end
               end
             end
             -- NEXT COMMENT PAGE

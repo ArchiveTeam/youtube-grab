@@ -1148,6 +1148,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     -- NEW COMMENT STYLE
     if string.match(url, "^https?://[^/]*youtube.com/youtubei/v1/next") then
       local data = cjson.decode(html)["onResponseReceivedEndpoints"]
+      if not data then
+        data = {}
+      end
       local just_sorted = false
       local pretty_print = "no"
       if string.match(url, "&prettyPrint=false") then
@@ -1386,7 +1389,7 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
   if status_code == 0 or status_code >= 400 then
     io.stdout:write("Server returned " .. http_stat.statcode .. " (" .. err .. "). Sleeping.\n")
     io.stdout:flush()
-    local maxtries = 2
+    local maxtries = 4
     if tries >= maxtries then
       io.stdout:write("I give up...\n")
       io.stdout:flush()

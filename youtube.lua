@@ -1,6 +1,8 @@
 local urlparse = require("socket.url")
 local http = require("socket.http")
 local https = require("ssl.https")
+local base64 = require("base64")
+local zlib = require("zlib")
 local cjson = require("cjson")
 local utf8 = require("utf8")
 
@@ -40,6 +42,15 @@ local audio_quality = {
   ["medium"] = 3,
   ["high"] = 4
 }
+
+local f = assert(io.open("data.txt", "rb"))
+local d = assert(f:read("*a"))
+f:close()
+d = string.gsub(d, "%s+", "")
+local decoded = zlib.inflate()(base64.decode(d))
+local configs = cjson.decode(decoded)
+local mweb_extra = configs["mweb_extra"]
+local types_variables = configs["types_variables"]
 
 local v1_items = {}
 for s in string.gmatch(v1_items_s, "([^;]+)") do
@@ -365,6 +376,29 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       s = s .. k .. "=" .. urlparse.escape(v)
     end
     return s
+  end
+
+  local function queue_youtubei(youtubei_context, signature_timestamp, youtubei_headers)
+    table.insert(
+      urls,
+      {
+        ["url"]="https://www.youtube.com/youtubei/v1/player",
+        ["method"]="POST",
+        ["body_data"]=cjson.encode({
+          ["context"]=youtubei_context,
+          ["videoId"]=item_value,
+          ["playbackContext"]={
+            ["contentPlaybackContext"]={
+              ["html5Preference"]="HTML5_PREF_WANTS",
+              ["signatureTimestamp"]=signature_timestamp
+            }
+          },
+          ["contentCheckOk"]=true,
+          ["racyCheckOk"]=true
+        }),
+        ["headers"]=youtubei_headers
+      }
+    )
   end
 
   local function queue_comments(continuation, itct, session_token, replies, without_next)
@@ -823,6 +857,32 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         context["formats_queued"] = true
       end
     end
+    if string.match(url, "^https?://m%.youtube%.com/?$") then
+      local ytcfg_s = string.match(html, "ytcfg%.set%s*%(%s*({.-})%s*%)%s*;")
+      if not ytcfg_s then
+        error("Could not find ytcfg in mweb config page.")
+      end
+      context["mweb_ytcfg"] = cjson.decode(ytcfg_s)
+      if context["need_mweb_player"] and not context["mweb_player_queued"] then
+        local mweb_ytcfg = context["mweb_ytcfg"]
+        local mweb_context = mweb_ytcfg["INNERTUBE_CONTEXT"]
+        local mweb_client = mweb_context["client"]
+        queue_youtubei(
+          mweb_context,
+          context["ytplayer"]["STS"],
+          {
+            ["X-YouTube-Client-Name"]=tostring(mweb_ytcfg["INNERTUBE_CONTEXT_CLIENT_NAME"]),
+            ["X-YouTube-Client-Version"]=mweb_ytcfg["INNERTUBE_CONTEXT_CLIENT_VERSION"] or mweb_client["clientVersion"],
+            ["Origin"]="https://www.youtube.com",
+            ["User-Agent"]=mweb_client["userAgent"],
+            ["Sec-Fetch-Mode"]="navigate",
+            ["content-type"]="application/json",
+            ["X-Goog-Visitor-Id"]=mweb_ytcfg["VISITOR_DATA"] or mweb_client["visitorData"]
+          }
+        )
+        context["mweb_player_queued"] = true
+      end
+    end
     if string.match(url, "^https?://[^/]*youtube%.com/watch%?v=[^&]+$") then
       check("https://youtu.be/" .. item_value)
       context["initial_data"] = cjson.decode(string.match(html, "<script[^>]+>var%s+ytInitialData%s*=%s*({.-})%s*;%s*</script>"))
@@ -978,71 +1038,47 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         else
           print("Found visitor data", visitor_data)
         end
-        local types_variables = {
-          ["ios"]={
-            ["context_client"]={
-               ["clientName"]="IOS",
-               ["clientVersion"]="20.10.4",
-               ["deviceMake"]="Apple",
-               ["deviceModel"]="iPhone16,2",
-               ["userAgent"]="com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
-               ["osName"]="iPhone",
-               ["osVersion"]="18.3.2.22D82"
-            },
-            ["client_name"]="5"
-          },
-          ["mweb"]={
-            ["context_client"]={
-              ["clientName"]="MWEB",
-              ["clientVersion"]="2.20250311.03.00",
-              ["userAgent"]="Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)"
-            },
-            ["client_name"]="2"
-          },
-          ["tv"]={
-            ["context_client"]={
-              ["clientName"]="TVHTML5",
-              ["clientVersion"]="7.20250312.16.00",
-              ["userAgent"]="Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"
-            },
-            ["client_name"]="7"
-          }
-        }
         allowed_urls["https://www.youtube.com/youtubei/v1/player"] = true
-        for _, use_type in pairs({"ios", "tv"}) do
-          if not context["players"] then
-            context["players"] = 0
-            context["players_done"] = 0
-            context["formats_queued"] = false
-          end
+        context["players"] = 0
+        context["players_done"] = 0
+        context["formats_queued"] = false
+        context["need_mweb_player"] = false
+        context["mweb_player_queued"] = false
+        for _, use_type in ipairs({"android"}) do
           context["players"] = context["players"] + 1
-          table.insert(
-            urls,
-            {
-              url="https://www.youtube.com/youtubei/v1/player",
-              method="POST",
-              body_data=cjson.encode({
-                ["context"]={
-                  ["client"]=merge_tables(
-                    {
-                      ["hl"]="en",
-                      ["timeZone"]="UTC",
-                      ["utcOffsetMinutes"]=0
-                    },
-                    types_variables[use_type]["context_client"]
-                  )
-                },
-                ["videoId"]=item_value,
-                ["playbackContext"]={
-                  ["contentPlaybackContext"]={
-                      ["html5Preference"]="HTML5_PREF_WANTS",
-                      ["signatureTimestamp"]=context["ytplayer"]["STS"]
-                  }
-                },
-                ["contentCheckOk"]=true,
-                ["racyCheckOk"]=true
-              }),
-              headers={
+          if use_type == "mweb" then
+            context["need_mweb_player"] = true
+            local mweb_url = mweb_extra["url"]
+            allowed_urls[mweb_url] = true
+            if downloaded[mweb_url] ~= true and addedtolist[mweb_url] ~= true
+              and allowed(mweb_url, url) then
+              table.insert(
+                urls,
+                {
+                  url=mweb_url,
+                  headers=mweb_extra["headers"]
+                }
+              )
+              addedtolist[mweb_url] = true
+            end
+          else
+            local innertube_client = merge_tables(
+              {
+                ["hl"]="en",
+                ["timeZone"]="UTC",
+                ["utcOffsetMinutes"]=0
+              },
+              types_variables[use_type]["context_client"]
+            )
+            if types_variables[use_type]["use_visitor_data"] then
+              innertube_client["visitorData"] = visitor_data
+            end
+            queue_youtubei(
+              {
+                ["client"]=innertube_client
+              },
+              context["ytplayer"]["STS"],
+              {
                 ["X-YouTube-Client-Name"]=types_variables[use_type]["client_name"],
                 ["X-YouTube-Client-Version"]=types_variables[use_type]["context_client"]["clientVersion"],
                 ["Origin"]="https://www.youtube.com",
@@ -1050,8 +1086,8 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
                 ["content-type"]="application/json",
                 ["X-Goog-Visitor-Id"]=visitor_data
               }
-            }
-          )
+            )
+          end
         end
         -- old, directly from data in HTML
         -- queue_streams(context["initial_player"])
@@ -1495,4 +1531,3 @@ wget.callbacks.before_exit = function(exit_status, exit_status_string)
   end
   return exit_status
 end
-

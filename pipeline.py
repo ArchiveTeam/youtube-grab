@@ -70,7 +70,7 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20251230.01'
+VERSION = '20260117.01'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0'
 TRACKER_ID = 'youtube'
 TRACKER_HOST = 'legacy-api.arpa.li'
@@ -198,7 +198,8 @@ class SetCookies(SimpleTask):
             item['cookie_file'] = os.path.join(item['cookies_dir'], self.get_cookie())
             if not os.path.isfile(item['cookie_file']):
                 with open(item['cookie_file'], 'w') as f:
-                    f.write('.youtube.com\tTRUE\t/\tTRUE\t2147483647\tPREF\ttz=Etc.UTC\n')
+                    f.write('.youtube.com\tTRUE\t/\tTRUE\t2147483647\tPREF\thl=en&tz=UTC\n')
+                    f.write('.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSOCS\tCAI\n')
                     f.write('.youtube.com\tTRUE\t/\tTRUE\t2147483647\tCONSENT\tYES+\n')
 
     @classmethod

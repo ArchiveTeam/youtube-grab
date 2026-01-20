@@ -1303,9 +1303,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     for s in string.gmatch(html, "[%?&]list=(" .. playlist_pattern .. ")") do
       queue_item("p", s)
     end
-    if string.match(html, "/attribution%?v=" .. item_value) then
+    --[[if string.match(html, "/attribution%?v=" .. item_value) then
       check("https://www.youtube.com/attribution?v=" .. item_value)
-    end
+    end]]
     -- TODO
     --[[for newurl in string.gmatch(string.gsub(html, "&quot;", '"'), '([^"]+)') do
       checknewurl(newurl)

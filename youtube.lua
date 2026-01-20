@@ -438,7 +438,6 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     context["client"]["screenDensityFloat"] = 1
     context["client"]["utcOffsetMinutes"] = 0
     context["client"]["userInterfaceTheme"] = "USER_INTERFACE_THEME_LIGHT"
-    context["client"]["utcOffsetMinutes"] = 0
     context["client"]["mainAppWebInfo"] = {
       graftUrl=current_referer,
       webDisplayMode="WEB_DISPLAY_MODE_BROWSER",

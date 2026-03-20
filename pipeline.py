@@ -53,11 +53,11 @@ WGET_AT = find_executable(
     'Wget+AT',
     HigherVersion(
         r'(GNU Wget 1\.[0-9]{2}\.[0-9]{1}-at\.[0-9]{8}\.[0-9]{2})[^0-9a-zA-Z\.-_]',
-        'GNU Wget 1.21.3-at.20250825.01'
+        'GNU Wget 1.21.3-at.20260319.01'
     ),
     [
         './wget-at',
-        '/home/warrior/data/wget-at'
+        '/home/warrior/data/wget-at-nss'
     ]
 )
 
@@ -70,7 +70,7 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20260117.03'
+VERSION = '20260320.01'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0'
 TRACKER_ID = 'youtube'
 TRACKER_HOST = 'legacy-api.arpa.li'
@@ -272,7 +272,7 @@ class WgetArgs(object):
     def realize(self, item):
         wget_args = [
             WGET_AT,
-            '-U', USER_AGENT,
+            #'-U', USER_AGENT,
             '-nv',
             '--host-lookups', 'dns',
             '--hosts-file', '/dev/null',
@@ -301,10 +301,12 @@ class WgetArgs(object):
             '--warc-header', 'x-wget-at-project-name: ' + TRACKER_ID,
             '--warc-dedup-url-agnostic',
             #'--warc-tempdir', ItemInterpolation('%(item_dir)s'),
-            '--header', 'Accept-Language: en-US;q=0.9, en;q=0.8',
+            #'--header', 'Accept-Language: en-US;q=0.9, en;q=0.8',
             '--load-cookies', ItemValue('cookie_file'),
             '--save-cookies', ItemValue('cookie_file'),
-            '--keep-session-cookies'
+            '--keep-session-cookies',
+            '--impersonate', 'firefox148-h1',
+            '--header', 'Accept-Encoding: identity'
         ]
 
         if 'PREFER_IPV4' in os.environ:

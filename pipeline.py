@@ -216,7 +216,7 @@ class SetCookies(SimpleTask):
 
     @classmethod
     def get_cookie(cls):
-        if len(cls.COOKIES['cookies']) < cls.concurrency():
+        if len(cls.COOKIES['cookies']) < int(cls.concurrency()):
             cls._add_cookie(-1)
         index = cls.COOKIES['index'] % cls.CONCURRENCY
         result = cls.COOKIES['cookies'][index]

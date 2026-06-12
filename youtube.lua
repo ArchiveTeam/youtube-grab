@@ -24,6 +24,7 @@ local killgrab = false
 
 local discovered = {}
 local discovered_self = {}
+local found_errors = {}
 local outlinks = {}
 
 local bad_items = {}
@@ -905,6 +906,8 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           reason = temp
         end
         print("Video is not playable: " .. reason)
+        found_errors[item_value .. ":" .. tostring(playability_status["status"]) .. ":" .. reason] = true
+        wget.callbacks.finish()
         if playability_status["status"] == "LOGIN_REQUIRED"
           and string.match(reason, " bot")
           and string.match(reason, "[sS]ign in") then
@@ -1494,6 +1497,7 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
   for key, data in pairs({
     ["youtube-stash-gdx8gc8jss2g68t"]=discovered, -- youtube-dww7l284444bgkw
     ["youtube-xpqppj8vq914e5yr"]=discovered_self,
+    ["youtube-errors-hk0nxjy9ojbblzsv"]=found_errors,
     ["urls-iw1yksstlc7xgum"]=outlinks
   }) do
     local count = 0

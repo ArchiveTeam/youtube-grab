@@ -25,6 +25,12 @@ local killgrab = false
 local discovered = {}
 local discovered_self = {}
 local found_errors = {}
+local unplayable = {
+  ["age_restricted"]={},
+  ["private"]={},
+  ["removed_tos"]={},
+  ["unavailable"]={}
+}
 local outlinks = {}
 
 local bad_items = {}
@@ -223,6 +229,10 @@ end
 wget.callbacks.get_urls = function(file, url, is_css, iri)
   local urls = {}
   local html = nil
+
+  if context["skip_item"] then
+    return urls
+  end
 
   downloaded[url] = true
 
@@ -892,33 +902,6 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       if context["ytplayer"]["XSRF_FIELD_NAME"] ~= "session_token" then
         error("Could not find a session_token.")
       end
-      local playability_status = context["initial_player"]["playabilityStatus"]
-      if playability_status["status"] ~= "OK" then
-        local reason = playability_status["reason"] or playability_status["messages"]
-        if type(reason) == "table" then
-          local temp = ""
-          for _, s in pairs(reason) do
-            if string.len(temp) > 0 then
-              temp = temp .. " "
-            end
-            temp = temp .. s
-          end
-          reason = temp
-        end
-        print("Video is not playable: " .. reason)
-        found_errors[item_value .. ":" .. tostring(playability_status["status"]) .. ":" .. reason] = true
-        wget.callbacks.finish()
-        if playability_status["status"] == "LOGIN_REQUIRED"
-          and string.match(reason, " bot")
-          and string.match(reason, "[sS]ign in") then
-          banned()
-        else
-          io.stdout:write("You are unable to play this video.\n")
-          io.stdout:flush()
-        end
-        abort_item()
-        return nil
-      end
       -- INITIAL COMMENT CONTINUATION
       current_referer = url
       context["xsrf_token"] = context["ytplayer"]["XSRF_TOKEN"]
@@ -1368,10 +1351,110 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
   return urls
 end
 
+wget.callbacks.write_to_warc = function(url, http_stat)
+  local url_ = url["url"]
+  set_new_item(url_)
+  if not item_name then
+    error("No item name found.")
+  end
+  if string.match(url_, "^https?://[^/]*googlevideo%.com/videoplayback")
+    and http_stat["statcode"] == 200 then
+    local clen = string.match(url_, "[%?&]clen=([0-9]+)")
+    local content_length = http_stat["response_headers"]["headers"]["content-length"][1]
+    if tonumber(content_length) ~= http_stat["len"] then
+      error("Expected " .. content_length .. " bytes from Content-Length, got " .. tostring(http_stat["len"]) .. ".")
+    end
+    if tonumber(clen) ~= http_stat["len"] then
+      error("Expected " .. clen .. " bytes from clen, got " .. tostring(http_stat["len"]) .. ".")
+    end
+  end
+  if string.match(url_, "^https?://[^/]*youtube%.com/watch%?v=[^&]+$")
+    and http_stat["statcode"] == 200 then
+    local html = read_file(http_stat["local_file"])
+    local initial_player = cjson.decode(string.match(html, "<script[^>]+>var%s+ytInitialPlayerResponse%s*=%s*({.-})%s*;"))
+    local playability_status = initial_player["playabilityStatus"]
+    local status = playability_status["status"]
+    if status ~= "OK" then
+      local reasons = {}
+      if playability_status["reason"] then
+        table.insert(reasons, playability_status["reason"])
+      end
+      for _, message in ipairs(playability_status["messages"] or {}) do
+        table.insert(reasons, message)
+      end
+      local player_error_message = playability_status["errorScreen"]
+        and playability_status["errorScreen"]["playerErrorMessageRenderer"]
+      if player_error_message and player_error_message["subreason"] then
+        local subreason = player_error_message["subreason"]
+        if subreason["simpleText"] then
+          table.insert(reasons, subreason["simpleText"])
+        elseif subreason["runs"] then
+          local subreason_text = ""
+          for _, run in ipairs(subreason["runs"]) do
+            subreason_text = subreason_text .. run["text"]
+          end
+          table.insert(reasons, subreason_text)
+        end
+      end
+      local reason = ""
+      for _, text in ipairs(reasons) do
+        if string.len(reason) > 0 then
+          reason = reason .. " : "
+        end
+        reason = reason .. string.gsub(text, ":", "%%3A")
+      end
+      print("Video is not playable: " .. reason)
+      local regions_allowed = string.match(html, '<meta itemprop="regionsAllowed" content="([^"]+)"')
+      if regions_allowed then
+        print("Regions allowed: " .. regions_allowed)
+      end
+      local unavailable_type = nil
+      reason = string.lower(reason)
+      if status == "LOGIN_REQUIRED"
+        and string.match(reason, "not a bot") then
+        wget.callbacks.finish()
+        banned()
+        abort_item()
+        return false
+      elseif status == "LOGIN_REQUIRED"
+        and string.match(reason, "private video") then
+        unavailable_type = "private"
+      elseif status == "LOGIN_REQUIRED"
+        and (
+          playability_status["desktopLegacyAgeGateReason"]
+          or string.match(reason, "confirm your age")
+        ) then
+        unavailable_type = "age_restricted"
+      elseif status == "ERROR"
+        and string.match(reason, "terms of service") then
+        unavailable_type = "removed_tos"
+      elseif status == "ERROR"
+        and string.match(reason, "^video unavailable") then
+        unavailable_type = "unavailable"
+      end
+      if unavailable_type then
+        unplayable[unavailable_type][item_name] = true
+        context["skip_item"] = unavailable_type
+        return false
+      end
+      found_errors[item_value .. ":" .. status .. ":" .. reason] = true
+      io.stdout:write("You are unable to play this video.\n")
+      io.stdout:flush()
+      wget.callbacks.finish()
+      abort_item()
+      return false
+    end
+  end
+  return true
+end
+
 wget.callbacks.httploop_result = function(url, err, http_stat)
   status_code = http_stat["statcode"]
 
   set_new_item(url["url"])
+  if not item_name then
+    error("No item name found.")
+  end
 
   url_count = url_count + 1
   io.stdout:write(url_count .. "=" .. status_code .. " " .. url["url"] .. "  \n")
@@ -1418,6 +1501,10 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
   if abortgrab then
     abort_item()
     return wget.actions.ABORT
+  end
+
+  if context["skip_item"] then
+    return wget.actions.EXIT
   end
 
   if status_code == 404
@@ -1498,8 +1585,13 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
     ["youtube-stash-gdx8gc8jss2g68t"]=discovered, -- youtube-dww7l284444bgkw
     ["youtube-xpqppj8vq914e5yr"]=discovered_self,
     ["youtube-errors-hk0nxjy9ojbblzsv"]=found_errors,
+    ["youtube-error-age-restricted-zfw6jw7x1jo41lb9"]=unplayable["age_restricted"],
+    ["youtube-error-private-gnkdd9kpu2u7jhm8"]=unplayable["private"],
+    ["youtube-error-removed-tos-q6xf8d9yug07x2yr"]=unplayable["removed_tos"],
+    ["youtube-error-unavailable-ra9kscuk3chd3kzy"]=unplayable["unavailable"],
     ["urls-iw1yksstlc7xgum"]=outlinks
   }) do
+    print("queuing for", string.match(key, "^(.+)%-"))
     local count = 0
     local items = nil
     for item, _ in pairs(data) do
@@ -1523,7 +1615,15 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
 end
 
 wget.callbacks.before_exit = function(exit_status, exit_status_string)
-  if not context["formats_queued"] then
+  if context["skip_item"]
+    and (
+      not unplayable[context["skip_item"]]
+      or not unplayable[context["skip_item"]][item_name]
+    ) then
+    error("Skipped item was not queued as unavailable.")
+  end
+  if not context["skip_item"]
+    and not context["formats_queued"] then
     error("Formats were not queued yet.")
   end
   if killgrab then

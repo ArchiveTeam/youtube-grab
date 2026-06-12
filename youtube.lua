@@ -21,6 +21,7 @@ local seen_200 = {}
 local addedtolist = {}
 local abortgrab = false
 local killgrab = false
+local logged_response = false
 
 local discovered = {}
 local discovered_self = {}
@@ -1352,8 +1353,13 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
 end
 
 wget.callbacks.write_to_warc = function(url, http_stat)
+  status_code = http_stat["statcode"]
   local url_ = url["url"]
   set_new_item(url_)
+  url_count = url_count + 1
+  io.stdout:write(url_count .. "=" .. status_code .. " " .. url["url"] .. " \n")
+  io.stdout:flush()
+  logged_response = true
   if not item_name then
     error("No item name found.")
   end
@@ -1456,9 +1462,12 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
     error("No item name found.")
   end
 
-  url_count = url_count + 1
-  io.stdout:write(url_count .. "=" .. status_code .. " " .. url["url"] .. "  \n")
-  io.stdout:flush()
+  if not logged_response then
+    url_count = url_count + 1
+    io.stdout:write(url_count .. "=" .. status_code .. " " .. url["url"] .. " \n")
+    io.stdout:flush()
+  end
+  logged_response = false
 
   if killgrab then
     return wget.actions.ABORT

@@ -10,6 +10,7 @@ local item_dir = os.getenv("item_dir")
 local warc_file_base = os.getenv("warc_file_base")
 local v1_items_s = os.getenv("v1_items")
 local v2_items_s = os.getenv("v2_items")
+local cookie_file = os.getenv("cookie_file")
 local item_type = nil
 local item_name = nil
 local item_value = nil
@@ -222,6 +223,7 @@ wget.callbacks.download_child_p = function(urlpos, parent, depth, start_url_pars
 end
 
 banned = function()
+  io.open(cookie_file .. ".bad", "w"):close()
   io.stdout:write("You're likely banned, sleeping for 1800 seconds.\n")
   io.stdout:flush()
   os.execute("sleep 1800")

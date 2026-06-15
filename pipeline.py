@@ -70,7 +70,7 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20260615.03'
+VERSION = '20260615.04'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0'
 TRACKER_ID = 'youtube'
 TRACKER_HOST = 'legacy-api.arpa.li'
@@ -108,9 +108,112 @@ class CheckIP(SimpleTask):
                 raise Exception(
                     'Are you behind a firewall/proxy? That is a big no-no!')
 
+            command = [
+                WGET_AT,
+                '--host-lookups', 'dns',
+                '--hosts-file', '/dev/null',
+                '--resolvconf-file', '/dev/null',
+                '--dns-servers', '9.9.9.10,149.112.112.10,2620:fe::10,2620:fe::fe:10',
+                '--no-hsts',
+                '--output-document', '-',
+                '--max-redirect', '0',
+                '--save-headers'
+            ]
+            kwargs = {
+                'timeout': 60,
+                'capture_output': True
+            }
+            returned = subprocess.run(
+                command+[
+                    'http://youtube.com/'
+                ],
+                **kwargs
+            )
+            youtube_ips = set(re.findall(
+                br'([0-9]{1,3}(?:\.[0-9]{1,3}){3})',
+                returned.stdout + returned.stderr
+            ))
+            assert youtube_ips, 'No IP addresses found.'
+            assert all(ip not in youtube_ips for ip in [
+                b'216.239.38.119',
+                b'216.239.38.120'
+            ]), 'Got restricted IP address in {}.'.format(youtube_ips)
+
+            url = 'https://legacy-api.arpa.li/now'
+            returned = subprocess.run(
+                command+[url],
+                **kwargs
+            )
+            assert returned.returncode == 0, 'Invalid return code {} on {}.'.format(returned.returncode, url)
+            assert re.match(
+                b'^HTTP/1\\.1 200 OK\r\n'
+                b'Server: openresty\r\n'
+                b'Date: [A-Z][a-z]{2}, [0-9]{2} [A-Z][a-z]{2} 202[0-9] [0-9]{2}:[0-9]{2}:[0-9]{2} GMT\r\n'
+                b'Content-Type: text/plain\r\n'
+                b'Connection: keep-alive\r\n'
+                b'Content-Length: 1[0-9]\r\n'
+                b'Cache-Control: no-store\r\n'
+                b'\r\n'
+                b'[0-9]{10}\\.[0-9]{1,3}$',
+                returned.stdout
+            ), 'Bad stdout on {}, got {}.'.format(url, repr(returned.stdout))
+
+            actual_time = float(returned.stdout.rsplit(b'\n', 1)[1])
+            local_time = time.time()
+            max_diff = 180
+            diff = abs(actual_time-local_time)
+            assert diff < max_diff, 'Your time {} is more than {} seconds off of {}.'.format(local_time, max_diff, actual_time)
+
+            for url in (
+                'http://domain.invalid/',
+                'http://example.test/',
+                'http://www/',
+                'http://example.test/example',
+                'http://nxdomain.archiveteam.org/'
+            ):
+                returned = subprocess.run(
+                    command+[url],
+                    **kwargs
+                )
+                assert len(returned.stdout) == 0, 'Bad stdout on {}, got {}.'.format(url, repr(returned.stdout))
+                assert (
+                    b'failed: No IPv4/IPv6 addresses for host.\n'
+                    + bytes(WGET_AT.split('/')[-1], 'utf8')
+                    + b': unable to resolve host address'
+                ) in returned.stderr, 'Bad stderr on {}, got {}.'.format(url, repr(returned.stderr))
+                assert returned.returncode == 4, 'Invalid return code {} on {}.'.format(returned.returncode, url)
+
+            url = 'https://on.quad9.net/'
+            returned = subprocess.run(
+                command+[url],
+                **kwargs
+            )
+            assert returned.returncode == 0, 'Invalid return code {} on {}.'.format(returned.returncode, url)
+            assert re.match(
+                b'^HTTP/1\\.1 200 OK\r\n'
+                b'Server: nginx/1\\.22\\.1\r\n'
+                b'Date: [A-Z][a-z]{2}, [0-9]{2} [A-Z][a-z]{2} 202[0-9] [0-9]{2}:[0-9]{2}:[0-9]{2} GMT\r\n'
+                b'Content-Type: text/html\r\n'
+                b'Content-Length: [23][0-9]{3}\r\n'
+                b'Last-Modified: [A-Z][a-z]{2}, [0-9]{2} [A-Z][a-z]{2} 202[0-9] [0-9]{2}:[0-9]{2}:[0-9]{2} GMT\r\n'
+                b'Connection: keep-alive\r\n'
+                b'Keep-Alive: timeout=5\r\n'
+                b'ETag: "[^"]+"\r\n'
+                b'Strict-Transport-Security: max-age=63072000; includeSubdomains; preload\r\n'
+                b'Accept-Ranges: bytes\r\n'
+                b'\r\n',
+                returned.stdout
+            ), 'Bad stdout on {}, got {}.'.format(url, repr(returned.stdout))
+            for b in (
+                b'<title>Yes, you ARE using quad9. | Quad9</title>',
+                b'<h1 id="banner">YES</h1>',
+                b'data-result="yes"'
+            ):
+                assert b in returned.stdout, 'Bad stdout on {}, got {}.'.format(url, repr(returned.stdout))
+
         # Check only occasionally
         if self._counter <= 0:
-            self._counter = 10
+            self._counter = 100
         else:
             self._counter -= 1
 
@@ -179,59 +282,85 @@ def get_concurrency():
         concurrency = os.getenv('CONCURRENT_ITEMS')
         if concurrency is None:
             concurrency = 2
+        else:
+            concurrency = int(concurrency)
     return concurrency
 
 
 class SetCookies(SimpleTask):
     LOCK = threading.Lock()
-    COOKIES = {'index': 0, 'cookies': []}
-    CONCURRENCY = None
+    COOKIE_INDEX = 0
+    COOKIE_FILES = []
 
     def __init__(self):
         SimpleTask.__init__(self, 'SetCookies')
 
     def process(self, item):
-        item['cookies_dir'] = os.path.join(item['data_dir'].rsplit('/', 1)[0], 'cookies')
-        if not os.path.isdir(item['cookies_dir']):
-            os.makedirs(item['cookies_dir'])
+        cookies_dir = os.path.join(item['data_dir'].rsplit('/', 1)[0], 'cookies')
+        if not os.path.isdir(cookies_dir):
+            os.makedirs(cookies_dir)
         with self.LOCK:
-            item['cookie_file'] = os.path.join(item['cookies_dir'], self.get_cookie())
+            item['cookie_file'] = self.get_cookie(cookies_dir)
             if not os.path.isfile(item['cookie_file']):
-                with open(item['cookie_file'], 'w') as f:
-                    f.write('.youtube.com\tTRUE\t/\tTRUE\t2147483647\tPREF\thl=en&tz=UTC\n')
-                    f.write('.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSOCS\tCAI\n')
-                    f.write('.youtube.com\tTRUE\t/\tTRUE\t2147483647\tCONSENT\tYES+\n')
+                prefer_family = []
+                if 'PREFER_IPV4' in os.environ:
+                    prefer_family = ['--prefer-family', 'IPv4']
+                elif 'PREFER_IPV6' in os.environ:
+                    prefer_family = ['--prefer-family', 'IPv6']
+                returned = subprocess.run(
+                    [
+                        WGET_AT,
+                        '--host-lookups', 'dns',
+                        '--hosts-file', '/dev/null',
+                        '--resolvconf-file', '/dev/null',
+                        '--dns-servers', '9.9.9.10,149.112.112.10,2620:fe::10,2620:fe::fe:10',
+                        '--no-hsts',
+                        '--reject-reserved-subnets',
+                        '--output-document', '-',
+                        '--timeout', '30',
+                        '--tries', '1',
+                        '--save-cookies', item['cookie_file'],
+                        '--keep-session-cookies',
+                        '--impersonate', 'firefox148-h1',
+                        '--header', 'Accept-Encoding: identity',
+                        *prefer_family,
+                        'https://www.youtube.com/'
+                    ],
+                    timeout=60,
+                    capture_output=True
+                )
+                if returned.returncode != 0 and os.path.isfile(item['cookie_file']):
+                    os.remove(item['cookie_file'])
+                assert returned.returncode == 0, \
+                    'Invalid return code {} while preparing cookies: {}.'.format(returned.returncode, returned.stderr)
+                match = re.search(
+                    br'"saveConsentAction"\s*:\s*\{[^\{\}]*"socsCookie"\s*:\s*"([^"]+)"',
+                    returned.stdout
+                )
+                if match:
+                    with open(item['cookie_file'], 'a') as f:
+                        f.write('.youtube.com\tTRUE\t/\tTRUE\t{}\tSOCS\t{}\n'.format(
+                            int(time.time()) + 400 * 24 * 60 * 60,
+                            match.group(1).decode('utf-8')
+                        ))
+                time.sleep(random.randint(20, 30))
 
     @classmethod
-    def _add_cookie(cls, index):
-        new = {
-            'file': ''.join(random.choices(string.ascii_letters, k=8)) + '.txt',
-            'count': 0
-        }
-        if index == -1:
-            cls.COOKIES['cookies'].append(new)
-        else:
-            cls.COOKIES['cookies'][index] = new
-        return new
-
-    @classmethod
-    def get_cookie(cls):
-        if len(cls.COOKIES['cookies']) < cls.concurrency():
-            cls._add_cookie(-1)
-        index = cls.COOKIES['index'] % cls.CONCURRENCY
-        result = cls.COOKIES['cookies'][index]
-        if result['count'] > 250:
-            cls._add_cookie(index)
-        result = cls.COOKIES['cookies'][index]
-        cls.COOKIES['index'] += 1
-        result['count'] += 1
-        return result['file']
-
-    @classmethod
-    def concurrency(cls):
-        if cls.CONCURRENCY is None:
-            cls.CONCURRENCY = get_concurrency()
-        return cls.CONCURRENCY
+    def get_cookie(cls, cookies_dir):
+        new_cookie = lambda: ''.join(random.choices(string.ascii_letters, k=8)) + '.txt'
+        concurrency = get_concurrency()
+        while len(cls.COOKIE_FILES) < concurrency:
+            cls.COOKIE_FILES.append(new_cookie())
+        while True:
+            cookie_index = cls.COOKIE_INDEX % concurrency
+            result = os.path.join(cookies_dir, cls.COOKIE_FILES[cookie_index])
+            cls.COOKIE_INDEX += 1
+            if os.path.isfile(result + '.bad'):
+                os.remove(result + '.bad')
+                os.remove(result)
+                cls.COOKIE_FILES[cookie_index] = new_cookie()
+            else:
+                return result
 
 
 class MaybeUploadWithTracker(UploadWithTracker):
@@ -282,7 +411,6 @@ class WgetArgs(object):
             '--content-on-error',
             '--lua-script', 'youtube.lua',
             '-o', ItemInterpolation('%(item_dir)s/wget.log'),
-            '--no-check-certificate',
             '--output-document', ItemInterpolation('%(item_dir)s/wget.tmp'),
             '--truncate-output',
             '-e', 'robots=off',
@@ -372,7 +500,8 @@ pipeline = Pipeline(
             'item_dir': ItemValue('item_dir'),
             'warc_file_base': ItemValue('warc_file_base'),
             'v1_items': ItemValue('v1_items'),
-            'v2_items': ItemValue('v2_items')
+            'v2_items': ItemValue('v2_items'),
+            'cookie_file': ItemValue('cookie_file')
         }
     ),
     SetBadUrls(),

@@ -1363,6 +1363,9 @@ wget.callbacks.write_to_warc = function(url, http_stat)
   if not item_name then
     error("No item name found.")
   end
+  if status_code >= 400 then
+    return false
+  end
   if string.match(url_, "^https?://[^/]*googlevideo%.com/videoplayback")
     and http_stat["statcode"] == 200 then
     local clen = string.match(url_, "[%?&]clen=([0-9]+)")
@@ -1522,6 +1525,12 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
   if status_code == 404
     and string.match(url["url"], "^https?://[^/]*ytimg%.com") then
     return wget.actions.NOTHING
+  end
+
+  if status_code == 403
+    and string.match(url["url"], "^https?://[^/]*googlevideo%.com/videoplayback") then
+    banned()
+    return wget.actions.ABORT
   end
 
   if status_code == 0 or status_code >= 400 then

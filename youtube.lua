@@ -1367,11 +1367,14 @@ wget.callbacks.write_to_warc = function(url, http_stat)
     and http_stat["statcode"] == 200 then
     local clen = string.match(url_, "[%?&]clen=([0-9]+)")
     local content_length = http_stat["response_headers"]["headers"]["content-length"][1]
-    if tonumber(content_length) ~= http_stat["len"] then
-      error("Expected " .. content_length .. " bytes from Content-Length, got " .. tostring(http_stat["len"]) .. ".")
+    local f = assert(io.open(http_stat["local_file"], "rb"))
+    local size = f:seek("end")
+    f:close()
+    if tonumber(content_length) ~= size then
+      error("Expected " .. content_length .. " bytes from Content-Length, got " .. tostring(size) .. ".")
     end
-    if tonumber(clen) ~= http_stat["len"] then
-      error("Expected " .. clen .. " bytes from clen, got " .. tostring(http_stat["len"]) .. ".")
+    if tonumber(clen) ~= size then
+      error("Expected " .. clen .. " bytes from clen, got " .. tostring(size) .. ".")
     end
   end
   if string.match(url_, "^https?://[^/]*youtube%.com/watch%?v=[^&]+$")

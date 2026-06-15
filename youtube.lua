@@ -1420,6 +1420,9 @@ wget.callbacks.write_to_warc = function(url, http_stat)
       if regions_allowed then
         print("Regions allowed: " .. regions_allowed)
       end
+      if status == "CONTENT_CHECK_REQUIRED" then
+        return true
+      end
       local unavailable_type = nil
       reason = string.lower(reason)
       if status == "LOGIN_REQUIRED"
@@ -1437,11 +1440,25 @@ wget.callbacks.write_to_warc = function(url, http_stat)
           or string.match(reason, "confirm your age")
         ) then
         unavailable_type = "age_restricted"
+      elseif status == "UNPLAYABLE"
+        and (
+          string.match(reason, "members%-only")
+          or string.match(reason, "music premium members")
+          or string.match(reason, "live stream recording is not available")
+          or string.match(reason, "blocked it on copyright grounds")
+        ) then
+        unavailable_type = "unavailable"
       elseif status == "ERROR"
-        and string.match(reason, "terms of service") then
+        and (
+          string.match(reason, "terms of service")
+          or string.match(reason, "removed for violating youtube")
+        ) then
         unavailable_type = "removed_tos"
       elseif status == "ERROR"
-        and string.match(reason, "^video unavailable") then
+        and (
+          string.match(reason, "^video unavailable")
+          or string.match(reason, "^this video is unavailable")
+        ) then
         unavailable_type = "unavailable"
       end
       if unavailable_type then

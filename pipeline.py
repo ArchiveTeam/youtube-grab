@@ -70,7 +70,7 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20260615.04'
+VERSION = '20260615.05'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0'
 TRACKER_ID = 'youtube'
 TRACKER_HOST = 'legacy-api.arpa.li'
@@ -123,9 +123,12 @@ class CheckIP(SimpleTask):
                 'timeout': 60,
                 'capture_output': True
             }
+
+            url = 'https://youtube.com/'
             returned = subprocess.run(
                 command+[
-                    'http://youtube.com/'
+                    '--max-redirect', '1',
+                    url
                 ],
                 **kwargs
             )
@@ -138,6 +141,22 @@ class CheckIP(SimpleTask):
                 b'216.239.38.119',
                 b'216.239.38.120'
             ]), 'Got restricted IP address in {}.'.format(youtube_ips)
+            assert returned.returncode == 0, 'Invalid return code {} on {}.'.format(returned.returncode, url)
+            assert re.match(
+                b'^HTTP/1\\.1 200 OK\r\n'
+                b'Content-Type: text/html; charset=utf-8\r\n',
+                returned.stdout
+            ), 'Bad stdout on {}, got {}.'.format(url, repr(returned.stdout))
+            assert (
+                b'Location: https://www.youtube.com/ [following]\n'
+            ) in returned.stderr, 'Bad stderr on {}, got {}.'.format(url, repr(returned.stderr))
+            for b in (
+                b'<title>YouTube',
+                b'ytInitialData',
+                b'INNERTUBE_API_KEY',
+                b'ytcfg'
+            ):
+                assert b in returned.stdout, 'Bad stdout on {}, got {}.'.format(url, repr(returned.stdout))
 
             url = 'https://legacy-api.arpa.li/now'
             returned = subprocess.run(

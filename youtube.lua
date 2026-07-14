@@ -74,6 +74,7 @@ io.stdout:setvbuf("no")
 math.randomseed(os.time())
 
 local video_pattern = "[0-9a-zA-Z%-_]+"
+local post_pattern = video_pattern
 local channel_pattern = video_pattern
 local playlist_pattern = video_pattern
 local user_pattern = "[^\"'%s%?&/]+"
@@ -127,6 +128,10 @@ get_item = function(url)
   end
   if match and type_ then
     return type_, match
+  end
+  match = string.match(url, "^https?://www%.youtube%.com/post/(" .. post_pattern .. ")$")
+  if match then
+    return "post", match
   end
 end
 
@@ -210,6 +215,7 @@ allowed = function(url, parenturl)
 
   if string.match(url, "^https?://www%.youtube%.com/comment_service_ajax")
     or string.match(url, "^https?://[^/]*googlevideo%.com/")
+    or string.match(url, "^https?://[^/]*youtube.com/youtubei/v1/browse")
     or string.match(url, "^https?://[^/]*youtube.com/youtubei/v1/next")
     or string.match(url, "^https?://[^/]*ytimg%.com") then
     return true
@@ -848,8 +854,29 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
 
   if allowed(url, nil) and status_code == 200
     and not string.match(url, "^https?://[^/]*googlevideo%.com")
+    and not string.match(url, "^https?://[^/]*ggpht%.com")
     and not string.match(url, "^https?://[^/]*ytimg%.com") then
     html = read_file(file)
+    local is_post = string.match(url, "^https?://[^/]*youtube%.com/post/[^/]+$")
+    local is_watch = string.match(url, "^https?://[^/]*youtube%.com/watch%?v=[^&]+$")
+    if is_post or is_watch then
+      context["initial_data"] = cjson.decode(string.match(html, "<script[^>]+>var%s+ytInitialData%s*=%s*({.-})%s*;%s*</script>"))
+      context["ytplayer"] = cjson.decode(string.match(html, "ytcfg%.set%(({.-})%)%s*;%s*window%.ytcfg%.obfuscatedData_"))
+      if context["ytplayer"]["XSRF_FIELD_NAME"] ~= "session_token" then
+        error("Could not find a session_token.")
+      end
+      current_referer = url
+      context["xsrf_token"] = context["ytplayer"]["XSRF_TOKEN"]
+      post_headers = {
+        ["Content-Type"]=nil,
+        ["X-Youtube-Client-Name"]=context["ytplayer"]["INNERTUBE_CONTEXT_CLIENT_NAME"],
+        ["X-Youtube-Client-Version"]=context["ytplayer"]["INNERTUBE_CONTEXT_CLIENT_VERSION"],
+        Referer=current_referer
+      }
+      context["api_key"] = context["ytplayer"]["INNERTUBE_API_KEY"]
+      context["api_version"] = context["ytplayer"]["INNERTUBE_API_VERSION"]
+      set_current_context(context["ytplayer"]["INNERTUBE_CONTEXT"])
+    end
     if url == "https://www.youtube.com/youtubei/v1/player" then
       local json = cjson.decode(html)
       context["players_done"] = context["players_done"] + 1
@@ -897,26 +924,61 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         context["mweb_player_queued"] = true
       end
     end
-    if string.match(url, "^https?://[^/]*youtube%.com/watch%?v=[^&]+$") then
-      check("https://youtu.be/" .. item_value)
-      context["initial_data"] = cjson.decode(string.match(html, "<script[^>]+>var%s+ytInitialData%s*=%s*({.-})%s*;%s*</script>"))
-      context["initial_player"] = cjson.decode(string.match(html, "<script[^>]+>var%s+ytInitialPlayerResponse%s*=%s*({.-})%s*;"))
-      context["ytplayer"] = cjson.decode(string.match(html, "ytcfg%.set%(({.-})%)%s*;%s*window%.ytcfg%.obfuscatedData_"))
-      if context["ytplayer"]["XSRF_FIELD_NAME"] ~= "session_token" then
-        error("Could not find a session_token.")
+    if is_post then
+      local initial_data = context["initial_data"]["contents"]["twoColumnBrowseResultsRenderer"]["tabs"][1]["tabRenderer"]["content"]["sectionListRenderer"]["contents"]
+      local found = false
+      for _, section in pairs(initial_data) do
+        local item_section = section["itemSectionRenderer"]
+        if item_section then
+          for _, data in pairs(item_section["contents"]) do
+            local post_thread_renderer = data["backstagePostThreadRenderer"]
+            local message_renderer = data["messageRenderer"]
+            local continuation_item_renderer = data["continuationItemRenderer"]
+            if post_thread_renderer then
+              local post_renderer = post_thread_renderer["post"]["backstagePostRenderer"]
+              local attachment = post_renderer["backstageAttachment"]
+              if attachment then
+                local video_renderer = attachment["videoRenderer"]
+                if video_renderer then
+                  discovered_self["v2:" .. video_renderer["videoId"]] = true
+                end
+                local images = {attachment}
+                if attachment["postMultiImageRenderer"] then
+                  images = attachment["postMultiImageRenderer"]["images"]
+                end
+                for _, image in pairs(images) do
+                  local image_renderer = image["backstageImageRenderer"]
+                  if image_renderer then
+                    for _, thumbnail in pairs(image_renderer["image"]["thumbnails"]) do
+                      allowed_urls[thumbnail["url"]] = true
+                      check(thumbnail["url"])
+                    end
+                  end
+                end
+              end
+            end
+            if message_renderer
+              and string.match(message_renderer["text"]["runs"][1]["text"], "Comments are turned off%.") then
+              print("comments turned off")
+              found = true
+            elseif continuation_item_renderer then
+              print("getting comments")
+              queue_continuation_new(continuation_item_renderer, "both")
+              found = true
+            end
+          end
+        end
       end
-      -- INITIAL COMMENT CONTINUATION
-      current_referer = url
-      context["xsrf_token"] = context["ytplayer"]["XSRF_TOKEN"]
-      post_headers = {
-        ["Content-Type"]=nil,
-        ["X-Youtube-Client-Name"]=context["ytplayer"]["INNERTUBE_CONTEXT_CLIENT_NAME"],
-        ["X-Youtube-Client-Version"]=context["ytplayer"]["INNERTUBE_CONTEXT_CLIENT_VERSION"],
-        Referer=current_referer
-      }
-      context["api_key"] = context["ytplayer"]["INNERTUBE_API_KEY"]
-      context["api_version"] = context["ytplayer"]["INNERTUBE_API_VERSION"]
-      set_current_context(context["ytplayer"]["INNERTUBE_CONTEXT"])
+      if not found then
+        error("Unsupported comments endpoint.")
+      end
+    end
+    if is_watch then
+      context["initial_player"] = cjson.decode(string.match(html, "<script[^>]+>var%s+ytInitialPlayerResponse%s*=%s*({.-})%s*;"))
+      check("https://youtu.be/" .. item_value)
+      if context["initial_player"]["microformat"]["playerMicroformatRenderer"]["isShortsEligible"] then
+        check("https://www.youtube.com/shorts/" .. item_value)
+      end
       local initial_data = context["initial_data"]["contents"]["twoColumnWatchNextResults"]["results"]["results"]["contents"]
       local found = false
       local found_info = false
@@ -950,6 +1012,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
             end
           end
         end
+        -- INITIAL COMMENT CONTINUATION
         data = d["itemSectionRenderer"]
         if data and found_info then
           local continuations = data["continuations"]
@@ -1171,7 +1234,8 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       end
     end
     -- NEW COMMENT STYLE
-    if string.match(url, "^https?://[^/]*youtube.com/youtubei/v1/next") then
+    if string.match(url, "^https?://[^/]*youtube.com/youtubei/v1/browse")
+      or string.match(url, "^https?://[^/]*youtube.com/youtubei/v1/next") then
       local data = cjson.decode(html)["onResponseReceivedEndpoints"]
       if not data then
         data = {}
@@ -1279,6 +1343,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end
     for s in string.gmatch(html, "[%?&]v=(" .. video_pattern .. ")") do
       queue_item("v", s)
+    end
+    for s in string.gmatch(html, "/post/(" .. post_pattern .. ")") do
+      queue_item("post", s)
     end
     for s in string.gmatch(html, "channel/(" .. channel_pattern .. ")") do
       queue_item("ch", s)
@@ -1427,8 +1494,16 @@ wget.callbacks.write_to_warc = function(url, http_stat)
       end
       local unavailable_type = nil
       reason = string.lower(reason)
-      if status == "LOGIN_REQUIRED"
-        and string.match(reason, "not a bot") then
+      if (
+          status == "LOGIN_REQUIRED"
+          and (
+            string.match(reason, "not a bot")
+            or string.match(reason, "helps protect our community")
+          )
+        ) or (
+          status == "UNPLAYABLE"
+          and string.match(reason, "vpn/proxy detected")
+        ) then
         wget.callbacks.finish()
         banned()
         abort_item()
@@ -1444,7 +1519,10 @@ wget.callbacks.write_to_warc = function(url, http_stat)
         unavailable_type = "age_restricted"
       elseif status == "UNPLAYABLE"
         and (
-          string.match(reason, "members%-only")
+          string.match(reason, "^video unavailable")
+          or string.match(reason, "^this video is not available")
+          or string.match(reason, "requires payment to watch")
+          or string.match(reason, "members%-only")
           or string.match(reason, "music premium members")
           or string.match(reason, "live stream recording is not available")
           or string.match(reason, "blocked it on copyright grounds")
@@ -1460,6 +1538,7 @@ wget.callbacks.write_to_warc = function(url, http_stat)
         and (
           string.match(reason, "^video unavailable")
           or string.match(reason, "^this video is unavailable")
+          or string.match(reason, "terminated due to use of 3rd party")
         ) then
         unavailable_type = "unavailable"
       end
@@ -1509,10 +1588,18 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
 
   if status_code >= 300 and status_code <= 399 then
     local newloc = urlparse.absolute(url["url"], http_stat["newloc"])
+    local post_id = string.match(newloc, "^https?://www%.youtube%.com/post/(" .. post_pattern .. ")$")
     if string.match(url["url"], "watch%?v=")
       or string.match(newloc, "consent%.youtube%.com")
       or string.match(newloc, "consent%.google%.com/")
       or string.match(newloc, "google%.com/sorry") then
+      if post_id then
+        print("watch redirects to post", newloc)
+        discovered_self["post:" .. post_id] = true
+        context["redirected_to_post"] = true
+        return wget.actions.EXIT
+      end
+      found_errors[item_value .. ":REDIRECT:" .. string.gsub(newloc, ":", "%%3A")] = true
       print("bad redirect to", newloc)
       banned()
       return wget.actions.ABORT
@@ -1542,7 +1629,10 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
   end
 
   if status_code == 404
-    and string.match(url["url"], "^https?://[^/]*ytimg%.com") then
+    and (
+      string.match(url["url"], "^https?://[^/]*ggpht%.com")
+      or string.match(url["url"], "^https?://[^/]*ytimg%.com")
+    ) then
     return wget.actions.NOTHING
   end
 
@@ -1662,7 +1752,9 @@ wget.callbacks.before_exit = function(exit_status, exit_status_string)
     ) then
     error("Skipped item was not queued as unavailable.")
   end
-  if not context["skip_item"]
+  if item_type ~= "post"
+    and not context["skip_item"]
+    and not context["redirected_to_post"]
     and not context["formats_queued"] then
     error("Formats were not queued yet.")
   end

@@ -70,7 +70,7 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20260615.05'
+VERSION = '20260714.01'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0'
 TRACKER_ID = 'youtube'
 TRACKER_HOST = 'legacy-api.arpa.li'
@@ -474,6 +474,9 @@ class WgetArgs(object):
                     v_items[0].append(item_value)
                 elif item_type == 'v2':
                     v_items[1].append(item_value)
+            elif item_type == 'post':
+                wget_args.extend(['--warc-header', 'youtube-post: '+item_value])
+                wget_args.append('https://www.youtube.com/post/'+item_value)
             else:
                 raise ValueError('item_type not supported.')
 

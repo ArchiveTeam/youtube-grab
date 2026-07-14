@@ -1519,9 +1519,7 @@ wget.callbacks.write_to_warc = function(url, http_stat)
         unavailable_type = "age_restricted"
       elseif status == "UNPLAYABLE"
         and (
-          string.match(reason, "^video unavailable")
-          or string.match(reason, "^this video is not available")
-          or string.match(reason, "requires payment to watch")
+          string.match(reason, "requires payment to watch")
           or string.match(reason, "members%-only")
           or string.match(reason, "music premium members")
           or string.match(reason, "live stream recording is not available")

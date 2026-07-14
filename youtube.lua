@@ -1714,7 +1714,7 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
   for key, data in pairs({
     ["youtube-stash-gdx8gc8jss2g68t"]=discovered, -- youtube-dww7l284444bgkw
     ["youtube-xpqppj8vq914e5yr"]=discovered_self,
-    ["youtube-errors-hk0nxjy9ojbblzsv"]=found_errors,
+    ["youtube-errors-hk0nxjy9ojbblzsv?skipbloom=1"]=found_errors,
     ["youtube-error-age-restricted-zfw6jw7x1jo41lb9"]=unplayable["age_restricted"],
     ["youtube-error-private-gnkdd9kpu2u7jhm8"]=unplayable["private"],
     ["youtube-error-removed-tos-q6xf8d9yug07x2yr"]=unplayable["removed_tos"],

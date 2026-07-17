@@ -68,7 +68,7 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20260717.02'
+VERSION = '20260717.03'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0'
 TRACKER_ID = 'youtube'
 TRACKER_HOST = 'legacy-api.arpa.li'
@@ -359,10 +359,14 @@ class SetCookies(SimpleTask):
                     os.remove(item['cookie_file'])
                 assert returned.returncode == 0, \
                     'Invalid return code {} while preparing cookies: {}.'.format(returned.returncode, returned.stderr)
-                match = re.search(
+                match = None
+                for pattern in (
                     br'"countryCode"\s*:\s*"([A-Z]{2})"',
-                    returned.stdout
-                )
+                    br'"GL"\s*:\s*"([A-Z]{2})"'
+                ):
+                    match = re.search(pattern, returned.stdout)
+                    if match:
+                        break
                 assert match, 'Could not find country code.'
                 SetCookies.COUNTRY = str(match.group(1), 'utf-8')
                 item.log_output('Detected country {}.'.format(SetCookies.COUNTRY))

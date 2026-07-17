@@ -19,8 +19,6 @@ import threading
 import time
 import string
 
-import requests
-
 import seesaw
 from seesaw.externalprocess import WgetDownload
 from seesaw.pipeline import Pipeline
@@ -70,7 +68,7 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20260714.03'
+VERSION = '20260717.01'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0'
 TRACKER_ID = 'youtube'
 TRACKER_HOST = 'legacy-api.arpa.li'
@@ -284,7 +282,14 @@ class SetBadUrls(SimpleTask):
     def process(self, item):
         item['item_name_original'] = item['item_name']
         items = item['item_name'].split('\0')
-        items_lower = [s.lower() for s in items]
+        items_lower = [
+            (
+                ':'.join(s.split(':', 2)[:2])
+                if re.match(r'^v[0-9]?:', s)
+                else s
+            ).lower()
+            for s in items
+        ]
         with open('%(item_dir)s/%(warc_file_base)s_bad-items.txt' % item, 'r') as f:
             for aborted_item in f:
                 aborted_item = aborted_item.strip().lower()
@@ -293,6 +298,7 @@ class SetBadUrls(SimpleTask):
                 items.pop(index)
                 items_lower.pop(index)
         item['item_name'] = '\0'.join(items)
+
 
 def get_concurrency():
     if '--concurrent' in sys.argv:
@@ -310,6 +316,7 @@ class SetCookies(SimpleTask):
     LOCK = threading.Lock()
     COOKIE_INDEX = 0
     COOKIE_FILES = []
+    COUNTRY = None
 
     def __init__(self):
         SimpleTask.__init__(self, 'SetCookies')
@@ -320,7 +327,7 @@ class SetCookies(SimpleTask):
             os.makedirs(cookies_dir)
         with self.LOCK:
             item['cookie_file'] = self.get_cookie(cookies_dir)
-            if not os.path.isfile(item['cookie_file']):
+            if not os.path.isfile(item['cookie_file']) or SetCookies.COUNTRY is None:
                 prefer_family = []
                 if 'PREFER_IPV4' in os.environ:
                     prefer_family = ['--prefer-family', 'IPv4']
@@ -353,6 +360,13 @@ class SetCookies(SimpleTask):
                 assert returned.returncode == 0, \
                     'Invalid return code {} while preparing cookies: {}.'.format(returned.returncode, returned.stderr)
                 match = re.search(
+                    br'"countryCode"\s*:\s*"([A-Z]{2})"',
+                    returned.stdout
+                )
+                assert match, 'Could not find country code.'
+                SetCookies.COUNTRY = str(match.group(1), 'utf-8')
+                item.log_output('Detected country {}.'.format(SetCookies.COUNTRY))
+                match = re.search(
                     br'"saveConsentAction"\s*:\s*\{[^\{\}]*"socsCookie"\s*:\s*"([^"]+)"',
                     returned.stdout
                 )
@@ -363,6 +377,7 @@ class SetCookies(SimpleTask):
                             match.group(1).decode('utf-8')
                         ))
                 time.sleep(random.randint(20, 30))
+            item['country'] = SetCookies.COUNTRY
 
     @classmethod
     def get_cookie(cls, cookies_dir):
@@ -380,6 +395,19 @@ class SetCookies(SimpleTask):
                 cls.COOKIE_FILES[cookie_index] = new_cookie()
             else:
                 return result
+
+
+def item_filter(items):
+    result = []
+    for item in items:
+        item_name = item['item']
+        accept_item = True
+        if item_name.count(':') == 2 and re.match(r'^v[0-9]?:', item_name):
+            if SetCookies.COUNTRY is None:
+                raise ValueError('Country is not set.')
+            accept_item = SetCookies.COUNTRY in item_name.rsplit(':', 1)[-1].split(',')
+        result.append(accept_item)
+    return result
 
 
 class MaybeUploadWithTracker(UploadWithTracker):
@@ -462,9 +490,14 @@ class WgetArgs(object):
             wget_args.extend(['--prefer-family', 'IPv6'])
 
         v_items = [[], []]
+        item['item_has_countries'] = 'false'
 
         for item_name in item['item_name'].split('\0'):
             wget_args.extend(['--warc-header', 'x-wget-at-project-item-name: '+item_name])
+            if re.match(r'^v[0-9]?:', item_name):
+                if item_name.count(':') == 2:
+                    item['item_has_countries'] = 'true'
+                    item_name = item_name.rsplit(':', 1)[0]
             wget_args.append('item-name://'+item_name)
             item_type, item_value = item_name.split(':', 1)
             if item_type in ('v', 'v1', 'v2'):
@@ -509,11 +542,11 @@ project = Project(
 
 pipeline = Pipeline(
     CheckIP(),
+    SetCookies(),
     GetItemFromTracker('https://{}/{}/multi={}/'
         .format(TRACKER_HOST, TRACKER_ID, MULTI_ITEM_SIZE),
-        downloader, VERSION),
+        downloader, VERSION, item_filter=item_filter),
     PrepareDirectories(warc_prefix='youtube'),
-    SetCookies(),
     WgetDownload(
         WgetArgs(),
         max_tries=1,
@@ -523,7 +556,9 @@ pipeline = Pipeline(
             'warc_file_base': ItemValue('warc_file_base'),
             'v1_items': ItemValue('v1_items'),
             'v2_items': ItemValue('v2_items'),
-            'cookie_file': ItemValue('cookie_file')
+            'cookie_file': ItemValue('cookie_file'),
+            'country': ItemValue('country'),
+            'item_has_countries': ItemValue('item_has_countries')
         }
     ),
     SetBadUrls(),

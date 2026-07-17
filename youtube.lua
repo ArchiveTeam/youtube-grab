@@ -11,6 +11,8 @@ local warc_file_base = os.getenv("warc_file_base")
 local v1_items_s = os.getenv("v1_items")
 local v2_items_s = os.getenv("v2_items")
 local cookie_file = os.getenv("cookie_file")
+local current_country = os.getenv("country")
+local item_has_countries = os.getenv("item_has_countries") == "true"
 local item_type = nil
 local item_name = nil
 local item_value = nil
@@ -29,6 +31,7 @@ local discovered_self = {}
 local found_errors = {}
 local unplayable = {
   ["age_restricted"]={},
+  ["country_locked"]={},
   ["private"]={},
   ["removed_tos"]={},
   ["unavailable"]={}
@@ -1463,36 +1466,55 @@ wget.callbacks.write_to_warc = function(url, http_stat)
       for _, message in ipairs(playability_status["messages"] or {}) do
         table.insert(reasons, message)
       end
-      local player_error_message = playability_status["errorScreen"]
-        and playability_status["errorScreen"]["playerErrorMessageRenderer"]
-      if player_error_message and player_error_message["subreason"] then
-        local subreason = player_error_message["subreason"]
-        if subreason["simpleText"] then
-          table.insert(reasons, subreason["simpleText"])
-        elseif subreason["runs"] then
-          local subreason_text = ""
-          for _, run in ipairs(subreason["runs"]) do
-            subreason_text = subreason_text .. run["text"]
+      local error_screen = playability_status["errorScreen"]
+      local player_error_message = error_screen and error_screen["playerErrorMessageRenderer"]
+      if player_error_message then
+        for _, key in ipairs({"reason", "subreason"}) do
+          local message = player_error_message[key]
+          if message then
+            local text = message["simpleText"]
+            if not text and message["runs"] then
+              text = ""
+              for _, run in ipairs(message["runs"]) do
+                text = text .. run["text"]
+              end
+            end
+            if text then
+              table.insert(reasons, text)
+            end
           end
-          table.insert(reasons, subreason_text)
         end
       end
-      local reason = ""
-      for _, text in ipairs(reasons) do
-        if string.len(reason) > 0 then
-          reason = reason .. " : "
+      local ypc_offer = error_screen and error_screen["playerLegacyDesktopYpcOfferRenderer"]
+      if ypc_offer then
+        for _, key in ipairs({"itemTitle", "offerDescription"}) do
+          if ypc_offer[key] then
+            table.insert(reasons, ypc_offer[key])
+          end
         end
-        reason = reason .. string.gsub(text, ":", "%%3A")
+      end
+      local captcha = error_screen and error_screen["playerCaptchaViewModel"]
+      local reason = ""
+      local seen_reasons = {}
+      for _, text in ipairs(reasons) do
+        if not seen_reasons[text] then
+          if string.len(reason) > 0 then
+            reason = reason .. " : "
+          end
+          reason = reason .. string.gsub(text, ":", "%%3A")
+          seen_reasons[text] = true
+        end
       end
       print("Video is not playable: " .. reason)
       local regions_allowed = string.match(html, '<meta itemprop="regionsAllowed" content="([^"]+)"')
       if regions_allowed then
         print("Regions allowed: " .. regions_allowed)
       end
-      if status == "CONTENT_CHECK_REQUIRED" then
+      if status == "CONTENT_CHECK_REQUIRED" and not captcha then
         return true
       end
       local unavailable_type = nil
+      local unavailable_item = item_name
       reason = string.lower(reason)
       if (
           status == "LOGIN_REQUIRED"
@@ -1503,7 +1525,7 @@ wget.callbacks.write_to_warc = function(url, http_stat)
         ) or (
           status == "UNPLAYABLE"
           and string.match(reason, "vpn/proxy detected")
-        ) then
+        ) or captcha then
         wget.callbacks.finish()
         banned()
         abort_item()
@@ -1517,6 +1539,19 @@ wget.callbacks.write_to_warc = function(url, http_stat)
           or string.match(reason, "confirm your age")
         ) then
         unavailable_type = "age_restricted"
+      elseif status == "UNPLAYABLE"
+        and not item_has_countries
+        and regions_allowed
+        and current_country
+        and not string.match("," .. regions_allowed .. ",", "," .. current_country .. ",") then
+        local countries = {}
+        for country in string.gmatch(regions_allowed, "[^,]+") do
+          table.insert(countries, country)
+        end
+        table.sort(countries)
+        unavailable_type = "country_locked"
+        unavailable_item = unavailable_item .. ":" .. table.concat(countries, ",")
+        discovered_self[unavailable_item] = true
       elseif status == "UNPLAYABLE"
         and (
           string.match(reason, "requires payment to watch")
@@ -1541,8 +1576,9 @@ wget.callbacks.write_to_warc = function(url, http_stat)
         unavailable_type = "unavailable"
       end
       if unavailable_type then
-        unplayable[unavailable_type][item_name] = true
+        unplayable[unavailable_type][unavailable_item] = true
         context["skip_item"] = unavailable_type
+        context["skip_item_name"] = unavailable_item
         return false
       end
       found_errors[item_value .. ":" .. status .. ":" .. reason] = true
@@ -1713,10 +1749,10 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
     ["youtube-stash-gdx8gc8jss2g68t"]=discovered, -- youtube-dww7l284444bgkw
     ["youtube-xpqppj8vq914e5yr"]=discovered_self,
     ["youtube-errors-hk0nxjy9ojbblzsv?skipbloom=1"]=found_errors,
-    ["youtube-error-age-restricted-zfw6jw7x1jo41lb9"]=unplayable["age_restricted"],
-    ["youtube-error-private-gnkdd9kpu2u7jhm8"]=unplayable["private"],
-    ["youtube-error-removed-tos-q6xf8d9yug07x2yr"]=unplayable["removed_tos"],
-    ["youtube-error-unavailable-ra9kscuk3chd3kzy"]=unplayable["unavailable"],
+    ["youtube-error-age-restricted-zfw6jw7x1jo41lb9?shard=error_age_restricted"]=unplayable["age_restricted"],
+    ["youtube-error-private-gnkdd9kpu2u7jhm8?shard=error_private"]=unplayable["private"],
+    ["youtube-error-removed-tos-q6xf8d9yug07x2yr?shard=error_removed_tos"]=unplayable["removed_tos"],
+    ["youtube-error-unavailable-ra9kscuk3chd3kzy?shard=error_unavailable"]=unplayable["unavailable"],
     ["urls-iw1yksstlc7xgum"]=outlinks
   }) do
     print("queuing for", string.match(key, "^(.+)%-"))
@@ -1746,7 +1782,7 @@ wget.callbacks.before_exit = function(exit_status, exit_status_string)
   if context["skip_item"]
     and (
       not unplayable[context["skip_item"]]
-      or not unplayable[context["skip_item"]][item_name]
+      or not unplayable[context["skip_item"]][context["skip_item_name"]]
     ) then
     error("Skipped item was not queued as unavailable.")
   end

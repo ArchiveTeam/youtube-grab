@@ -5,6 +5,19 @@ local base64 = require("base64")
 local zlib = require("zlib")
 local cjson = require("cjson")
 local utf8 = require("utf8")
+local pb = require("pb")
+local protoc = require("protoc")
+
+protoc.new():load([[
+  syntax = "proto3";
+  message XTag {
+    string key = 1;
+    string value = 2;
+  }
+  message XTags {
+    repeated XTag xtags = 1;
+  }
+]])
 
 local item_dir = os.getenv("item_dir")
 local warc_file_base = os.getenv("warc_file_base")
@@ -639,9 +652,23 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         if format["drmFamilies"] then
           drm = true
         end
-        print("Checking video with fps " .. fps .. ", height " .. height .. ", codec " .. codec .. ", DRM " .. tostring(drm))
+        local upscaled = false
+        if format["xtags"] then
+          local xtags = urlparse.unescape(format["xtags"])
+          xtags = string.gsub(string.gsub(xtags, "-", "+"), "_", "/")
+          xtags = xtags .. string.rep("=", -string.len(xtags) % 4)
+          xtags = base64.decode(xtags)
+          xtags = pb.decode("XTags", xtags)
+          for _, tag in pairs(xtags["xtags"]) do
+            if tag["key"] == "sr" and tag["value"] == "1" then
+              upscaled = true
+            end
+          end
+        end
+        print("Checking video with fps " .. fps .. ", height " .. height .. ", codec " .. codec .. ", DRM " .. tostring(drm) .. ", upscaled " .. tostring(upscaled))
         local diff = math.abs(height-480)
         if not drm
+          and not upscaled
           and (
             not current_video_url
             or (item_type == "v1" and diff < current_diff and not context["180"] and not context["360"])

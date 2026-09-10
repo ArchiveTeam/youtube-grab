@@ -644,6 +644,22 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     local current_audio_default = nil
     for _, format in pairs(adaptive_formats) do
       local mime = format["mimeType"]
+      local upscaled = false
+      local auto_dubbed = false
+      if format["xtags"] then
+        local xtags = urlparse.unescape(format["xtags"])
+        xtags = string.gsub(string.gsub(xtags, "-", "+"), "_", "/")
+        xtags = xtags .. string.rep("=", -string.len(xtags) % 4)
+        xtags = base64.decode(xtags)
+        xtags = pb.decode("XTags", xtags)
+        for _, tag in pairs(xtags["xtags"]) do
+          if tag["key"] == "sr" and tag["value"] == "1" then
+            upscaled = true
+          elseif tag["key"] == "acont" and tag["value"] == "dubbed-auto" then
+            auto_dubbed = true
+          end
+        end
+      end
       if string.match(mime, "^video/") then
         local height = format["height"]
         local fps = format["fps"]
@@ -651,19 +667,6 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         local drm = false
         if format["drmFamilies"] then
           drm = true
-        end
-        local upscaled = false
-        if format["xtags"] then
-          local xtags = urlparse.unescape(format["xtags"])
-          xtags = string.gsub(string.gsub(xtags, "-", "+"), "_", "/")
-          xtags = xtags .. string.rep("=", -string.len(xtags) % 4)
-          xtags = base64.decode(xtags)
-          xtags = pb.decode("XTags", xtags)
-          for _, tag in pairs(xtags["xtags"]) do
-            if tag["key"] == "sr" and tag["value"] == "1" then
-              upscaled = true
-            end
-          end
         end
         print("Checking video with fps " .. fps .. ", height " .. height .. ", codec " .. codec .. ", DRM " .. tostring(drm) .. ", upscaled " .. tostring(upscaled))
         local diff = math.abs(height-480)
@@ -718,8 +721,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         if format["drmFamilies"] then
           drm = true
         end
-        print("Checking audio" .. name_string .. " with bitrate " .. bitrate .. ", quality " .. quality .. ", DRC " .. tostring(drc) .. ", codec " .. codec .. ", DRM " .. tostring(drm))
+        print("Checking audio" .. name_string .. " with bitrate " .. bitrate .. ", quality " .. quality .. ", DRC " .. tostring(drc) .. ", codec " .. codec .. ", DRM " .. tostring(drm) .. ", auto dubbed " .. tostring(auto_dubbed))
         if not drm
+          and not auto_dubbed
           and (
             not current_audio_url[name]
             or (not drc and current_audio_url[name]["drc"])

@@ -42,6 +42,7 @@ local logged_response = false
 local discovered = {}
 local discovered_self = {}
 local limited_comments = {}
+local limited_1080p = {}
 local found_errors = {}
 local unplayable = {
   ["age_restricted"]={},
@@ -651,8 +652,10 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
   end
 
   local function queue_streams(adaptive_formats)
+    local ignore_1080p = item_type ~= "v2" or (context["180"] and not context["360"])
     local current_diff = nil
     local current_height = nil
+    local max_height = 0
     local current_fps = nil
     local current_video_codec = nil
     local current_video_url = nil
@@ -660,6 +663,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     local current_audio_default = nil
     for _, format in pairs(adaptive_formats) do
       local mime = format["mimeType"]
+      local bitrate = format["averageBitrate"] or format["bitrate"]
       local upscaled = false
       local auto_dubbed = false
       if format["xtags"] then
@@ -684,36 +688,54 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         if format["drmFamilies"] then
           drm = true
         end
-        print("Checking video with fps " .. fps .. ", height " .. height .. ", codec " .. codec .. ", DRM " .. tostring(drm) .. ", upscaled " .. tostring(upscaled))
+        print("Checking video with fps " .. fps .. ", height " .. height .. ", codec " .. codec .. ", DRM " .. tostring(drm) .. ", upscaled " .. tostring(upscaled) .. ", bitrate " .. bitrate)
         local diff = math.abs(height-480)
         if not drm
-          and not upscaled
-          and (
-            not current_video_url
-            or (item_type == "v1" and diff < current_diff and not context["180"] and not context["360"])
-            or (
-              (context["180"] or context["360"] or item_type == "v2")
-              and (
-                height > current_height
-                or (
-                  height >= current_height
-                  and (
-                    fps > current_fps
-                    or (current_video_codec ~= "vp9" and codec == "vp9")
-                  )
-                )
-              )
-            )
-          ) then
-          current_diff = diff
-          current_fps = fps
-          current_video_codec = codec
-          current_height = height
-          current_video_url = {url=format["url"], cipher=format["signatureCipher"]}
+          and not upscaled then
+          max_height = math.max(max_height, height)
+          local use_video = false
+          if not current_video_url then
+            use_video = true
+          elseif height <= 1080 and current_height > 1080
+            and not ignore_1080p then
+            use_video = true
+          elseif height > 1080 and current_height <= 1080
+            and not ignore_1080p then
+            use_video = false
+          elseif item_type == "v1"
+            and not context["180"] and not context["360"]
+            and diff ~= current_diff then
+            use_video = diff < current_diff
+          elseif (context["180"] or context["360"] or item_type == "v2")
+            and height ~= current_height then
+            use_video = height > current_height
+          elseif context["180"] or context["360"] or item_type == "v1" or item_type == "v2" then
+            if fps ~= current_fps then
+              use_video = fps > current_fps
+            elseif codec == "vp9" and current_video_codec ~= "vp9" then
+              use_video = true
+            elseif codec ~= "vp9" and current_video_codec == "vp9" then
+              use_video = false
+            else
+              use_video = bitrate > current_video_url["bitrate"]
+            end
+          end
+          if use_video then
+            current_diff = diff
+            current_fps = fps
+            current_video_codec = codec
+            current_height = height
+            current_video_url = {
+              ["url"] = format["url"],
+              ["cipher"] = format["signatureCipher"],
+              ["bitrate"] = bitrate
+            }
+          end
         end
       elseif string.match(mime, "^audio/") then
-        local bitrate = format["bitrate"]
         local codec = normalize_codec(string.match(mime, "codecs=\"([0-9a-zA-Z]+)"))
+        local channels = format["audioChannels"]
+        local sample_rate = tonumber(format["audioSampleRate"])
         local drc = false
         local name = ""
         local drm = false
@@ -737,32 +759,42 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         if format["drmFamilies"] then
           drm = true
         end
-        print("Checking audio" .. name_string .. " with bitrate " .. bitrate .. ", quality " .. quality .. ", DRC " .. tostring(drc) .. ", codec " .. codec .. ", DRM " .. tostring(drm) .. ", auto dubbed " .. tostring(auto_dubbed))
+        print("Checking audio" .. name_string .. " with bitrate " .. bitrate .. ", quality " .. quality .. ", DRC " .. tostring(drc) .. ", codec " .. codec .. ", DRM " .. tostring(drm) .. ", auto dubbed " .. tostring(auto_dubbed) .. ", channels " .. channels .. ", sample rate " .. sample_rate)
         if not drm
-          and not auto_dubbed
-          and (
-            not current_audio_url[name]
-            or (not drc and current_audio_url[name]["drc"])
-            or (
-              (not drc or current_audio_url[name]["drc"])
-              and (
-                audio_quality[quality] > audio_quality[current_audio_url[name]["quality"]]
-                or (
-                  audio_quality[quality] >= audio_quality[current_audio_url[name]["quality"]]
-                  and (codec == "opus" and current_audio_url[name]["codec"] ~= "opus")
-                )
-              )
-            )
-          ) then
-          current_audio_url[name] = {
-            ["url"] = format["url"],
-            ["cipher"] = format["signatureCipher"],
-            ["bitrate"] = bitrate,
-            ["drc"] = drc,
-            ["codec"] = codec,
-            ["quality"] = quality,
-            ["drm"] = drm
-          }
+          and not auto_dubbed then
+          local use_audio = false
+          if not current_audio_url[name] then
+            use_audio = true
+          elseif not drc and current_audio_url[name]["drc"] then
+            use_audio = true
+          elseif drc and not current_audio_url[name]["drc"] then
+            use_audio = false
+          elseif quality ~= current_audio_url[name]["quality"] then
+            use_audio = audio_quality[quality] > audio_quality[current_audio_url[name]["quality"]]
+          elseif codec == "opus" and current_audio_url[name]["codec"] ~= "opus" then
+            use_audio = true
+          elseif codec ~= "opus" and current_audio_url[name]["codec"] == "opus" then
+            use_audio = false
+          elseif channels ~= current_audio_url[name]["channels"] then
+            use_audio = channels > current_audio_url[name]["channels"]
+          elseif sample_rate ~= current_audio_url[name]["sample_rate"] then
+            use_audio = sample_rate > current_audio_url[name]["sample_rate"]
+          else
+            use_audio = bitrate > current_audio_url[name]["bitrate"]
+          end
+          if use_audio then
+            current_audio_url[name] = {
+              ["url"] = format["url"],
+              ["cipher"] = format["signatureCipher"],
+              ["bitrate"] = bitrate,
+              ["channels"] = channels,
+              ["sample_rate"] = sample_rate,
+              ["drc"] = drc,
+              ["codec"] = codec,
+              ["quality"] = quality,
+              ["drm"] = drm
+            }
+          end
         end
       else
         error("Unknown media... please report on IRC or archiveteam@archiveteam.org!")
@@ -772,8 +804,11 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     if not current_video_url then
       error("Could not pick video URL.")
     end
+    if not ignore_1080p and current_height <= 1080 and max_height > 1080 then
+      limited_1080p[item_name] = true
+    end
 
-    print("Chosen video with fps " .. current_fps .. ", height " .. current_height .. ", codec " .. current_video_codec)
+    print("Chosen video with fps " .. current_fps .. ", height " .. current_height .. ", codec " .. current_video_codec .. ", bitrate " .. current_video_url["bitrate"])
     local chosen_audio = false
     for audio_name, audio_data in pairs(current_audio_url) do
       local name_string = audio_name
@@ -781,7 +816,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         name_string = ' \'' .. name_string .. '\''
       end
       chosen_audio = true
-      print("Chosen audio" .. name_string .. " with bitrate " .. audio_data["bitrate"] .. ", quality " .. audio_data["quality"] .. ", DRC " .. tostring(audio_data["drc"]) .. ", codec " .. audio_data["codec"])
+      print("Chosen audio" .. name_string .. " with bitrate " .. audio_data["bitrate"] .. ", quality " .. audio_data["quality"] .. ", DRC " .. tostring(audio_data["drc"]) .. ", codec " .. audio_data["codec"] .. ", channels " .. audio_data["channels"] .. ", sample rate " .. audio_data["sample_rate"])
     end
 
     if not chosen_audio then
@@ -1796,6 +1831,7 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
     ["youtube-stash-gdx8gc8jss2g68t"]=discovered, -- youtube-dww7l284444bgkw
     ["youtube-xpqppj8vq914e5yr"]=discovered_self,
     ["youtube-limitedcomments-38c6165fa75e3ffb?skipbloom=1"]=limited_comments,
+    ["youtube-limited1080p-6928485f71eaa4dd?skipbloom=1"]=limited_1080p,
     ["youtube-errors-hk0nxjy9ojbblzsv?skipbloom=1"]=found_errors,
     ["youtube-error-age-restricted-zfw6jw7x1jo41lb9?shard=error_age_restricted"]=unplayable["age_restricted"],
     ["youtube-error-private-gnkdd9kpu2u7jhm8?shard=error_private"]=unplayable["private"],

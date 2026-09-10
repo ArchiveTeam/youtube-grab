@@ -41,6 +41,7 @@ local logged_response = false
 
 local discovered = {}
 local discovered_self = {}
+local limited_comments = {}
 local found_errors = {}
 local unplayable = {
   ["age_restricted"]={},
@@ -165,7 +166,9 @@ set_new_item = function(url)
   local type_, match = get_item(url)
   if match and not ids[match] then
     sorted_new = {}
-    context = {}
+    context = {
+      ["comment_pages"]={}
+    }
     post_headers = nil
     current_content = nil
     abortgrab = false
@@ -438,6 +441,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
   end
 
   local function queue_comments(continuation, itct, session_token, replies, without_next)
+    error("Unsupported comments endpoint.")
     local action = "action_get_comments"
     if replies then
       action = "action_get_comment_replies"
@@ -551,7 +555,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     current_context = context
   end
 
-  local function next_endpoint(continuation, click_tracking_params, api_url, pretty_print)
+  local function next_endpoint(continuation, click_tracking_params, api_url, pretty_print, target)
     current_context["clickTracking"]["clickTrackingParams"] = click_tracking_params
     post_headers["Content-Type"] = "application/json"
     local pretty_print_s = nil
@@ -563,18 +567,29 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       pretty_print = {"&prettyPrint=false"}
     end
     for _, s in pairs(pretty_print) do
-      table.insert(
-        urls,
-        {
-          url="https://www.youtube.com" .. api_url .. "?key=" .. context["api_key"] .. s,
-          method="POST",
-          body_data=cjson.encode({
-            context=current_context,
-            continuation=continuation
-          }),
-          headers=post_headers
-        }
-      )
+      local max_pages = 10
+      if target and string.match(target, "^comment%-replies%-item%-") then
+        max_pages = 2
+      end
+      local key = s .. (target or "comments-section")
+      local page = (context["comment_pages"][key] or 0) + 1
+      if page <= max_pages then
+        context["comment_pages"][key] = page
+        table.insert(
+          urls,
+          {
+            url="https://www.youtube.com" .. api_url .. "?key=" .. context["api_key"] .. s,
+            method="POST",
+            body_data=cjson.encode({
+              context=current_context,
+              continuation=continuation
+            }),
+            headers=post_headers
+          }
+        )
+      else
+        limited_comments[item_name] = true
+      end
     end
   end
 
@@ -597,7 +612,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     )
   end
 
-  local function queue_continuation_new(continuation_item_renderer, pretty_print)
+  local function queue_continuation_new(continuation_item_renderer, pretty_print, target)
     local continuation_endpoint = continuation_item_renderer["continuationEndpoint"]
     if not continuation_endpoint and not sorted_new[pretty_print] then
       print("switching order")
@@ -611,7 +626,8 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       continuation_endpoint["continuationCommand"]["token"],
       continuation_endpoint["clickTrackingParams"],
       continuation_endpoint["commandMetadata"]["webCommandMetadata"]["apiUrl"],
-      pretty_print
+      pretty_print,
+      target
     )
   end
 
@@ -1333,7 +1349,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
                     for _, thread in pairs(threads) do
                       if thread["continuationItemRenderer"] then
                         print("getting replies from " .. k)
-                        queue_continuation_new(thread["continuationItemRenderer"], pretty_print)
+                        queue_continuation_new(thread["continuationItemRenderer"], pretty_print, replies["commentRepliesRenderer"]["targetId"])
                       end
                     end
                   end
@@ -1345,7 +1361,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
               local continuation_item_renderer = item["continuationItemRenderer"]
               if continuation_item_renderer then
                 print("getting more comments")
-                queue_continuation_new(continuation_item_renderer, pretty_print)
+                queue_continuation_new(continuation_item_renderer, pretty_print, continuation_items_action["targetId"])
               end
             else
             end
@@ -1779,6 +1795,7 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
   for key, data in pairs({
     ["youtube-stash-gdx8gc8jss2g68t"]=discovered, -- youtube-dww7l284444bgkw
     ["youtube-xpqppj8vq914e5yr"]=discovered_self,
+    ["youtube-limitedcomments-38c6165fa75e3ffb?skipbloom=1"]=limited_comments,
     ["youtube-errors-hk0nxjy9ojbblzsv?skipbloom=1"]=found_errors,
     ["youtube-error-age-restricted-zfw6jw7x1jo41lb9?shard=error_age_restricted"]=unplayable["age_restricted"],
     ["youtube-error-private-gnkdd9kpu2u7jhm8?shard=error_private"]=unplayable["private"],

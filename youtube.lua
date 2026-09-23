@@ -1575,6 +1575,15 @@ wget.callbacks.write_to_warc = function(url, http_stat)
           end
         end
       end
+      local interstitial = error_screen and error_screen["playerInterstitialRenderer"]
+      if interstitial then
+        interstitial = interstitial["content"]["interstitialViewModel"]
+        for _, key in ipairs({"title", "description"}) do
+          if interstitial[key] then
+            table.insert(reasons, interstitial[key]["content"])
+          end
+        end
+      end
       local captcha = error_screen and error_screen["playerCaptchaViewModel"]
       local reason = ""
       local seen_reasons = {}
@@ -1600,10 +1609,7 @@ wget.callbacks.write_to_warc = function(url, http_stat)
       reason = string.lower(reason)
       if (
           status == "LOGIN_REQUIRED"
-          and (
-            string.match(reason, "not a bot")
-            or string.match(reason, "helps protect our community")
-          )
+          and string.match(reason, "not a bot")
         ) or (
           status == "UNPLAYABLE"
           and string.match(reason, "vpn/proxy detected")
@@ -1641,6 +1647,7 @@ wget.callbacks.write_to_warc = function(url, http_stat)
           or string.match(reason, "music premium members")
           or string.match(reason, "live stream recording is not available")
           or string.match(reason, "blocked it on copyright grounds")
+          or string.match(reason, "blocked due to the claimed content by")
         ) then
         unavailable_type = "unavailable"
       elseif status == "ERROR"

@@ -632,6 +632,26 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     )
   end
 
+  local function queue_replies(comment_thread_renderer, pretty_print)
+    local replies = comment_thread_renderer["replies"]
+    if replies then
+      for _, k in pairs({"contents", "subThreads"}) do
+        local threads = replies["commentRepliesRenderer"][k]
+        if threads then
+          --check_list_length(threads)
+          for _, thread in pairs(threads) do
+            if thread["continuationItemRenderer"] then
+              print("getting replies from " .. k)
+              queue_continuation_new(thread["continuationItemRenderer"], pretty_print, replies["commentRepliesRenderer"]["targetId"])
+            elseif thread["commentThreadRenderer"] then
+              queue_replies(thread["commentThreadRenderer"], pretty_print)
+            end
+          end
+        end
+      end
+    end
+  end
+
   local function find_external_video_id(data)
     for k, v in pairs(data) do
       if type(v) == "table" then
@@ -1321,7 +1341,22 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     -- NEW COMMENT STYLE
     if string.match(url, "^https?://[^/]*youtube.com/youtubei/v1/browse")
       or string.match(url, "^https?://[^/]*youtube.com/youtubei/v1/next") then
-      local data = cjson.decode(html)["onResponseReceivedEndpoints"]
+      local data = cjson.decode(html)
+      local updates = data["frameworkUpdates"]
+      local mutations = updates and updates["entityBatchUpdate"]
+      if mutations and mutations["mutations"] then
+        for _, mutation in pairs(mutations["mutations"]) do
+          local payload = mutation["payload"]
+          local comment = payload and payload["commentSurfaceEntityPayload"]
+          local attachment = comment and comment["imageAttachmentViewModel"]
+          if attachment then
+            for _, image in pairs(attachment["commentImageAttachmentViewModel"]["image"]["sources"]) do
+              check(image["url"])
+            end
+          end
+        end
+      end
+      data = data["onResponseReceivedEndpoints"]
       if not data then
         data = {}
       end
@@ -1375,21 +1410,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
             -- COMMENTS ON COMMENTS
             local comment_thread_renderer = item["commentThreadRenderer"]
             if comment_thread_renderer then
-              local replies = comment_thread_renderer["replies"]
-              if replies then
-                for _, k in pairs({"contents", "subThreads"}) do
-                  threads = replies["commentRepliesRenderer"][k]
-                  if threads then
-                    --check_list_length(threads)
-                    for _, thread in pairs(threads) do
-                      if thread["continuationItemRenderer"] then
-                        print("getting replies from " .. k)
-                        queue_continuation_new(thread["continuationItemRenderer"], pretty_print, replies["commentRepliesRenderer"]["targetId"])
-                      end
-                    end
-                  end
-                end
-              end
+              queue_replies(comment_thread_renderer, pretty_print)
             end
             -- NEXT COMMENT PAGE
             if sorted_new[pretty_print] and not just_sorted then
